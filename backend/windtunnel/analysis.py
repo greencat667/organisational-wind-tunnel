@@ -119,7 +119,7 @@ def divergence(base_hist: list[dict], int_hist: list[dict], intervention_month: 
             continue
         tail = diffs[-12:]
         effect = _mean(tail) / scale
-        rel = (_mean(post_x[-12:]) - _mean(post_b[-12:])) / (abs(_mean(post_b[-12:])) + 1e-6)
+        rel = (_mean(post_x[-12:]) - _mean(post_b[-12:])) / max(abs(_mean(post_b[-12:])), floor)
         if abs(effect) < min_effect and abs(rel) < 0.1:
             continue
         # onset: first month where |diff| exceeds scale for 3 consecutive months
@@ -132,7 +132,8 @@ def divergence(base_hist: list[dict], int_hist: list[dict], intervention_month: 
         out.append({"metric": key, "team": team, "effect_size": round(effect, 2), "relative_change": round(rel, 3),
                     "baseline_final": round(_mean(post_b[-12:]), 3), "intervention_final": round(_mean(post_x[-12:]), 3),
                     "onset_month": onset, "lag_months": (onset - intervention_month) if onset is not None else None})
-    out.sort(key=lambda d: (-abs(d["effect_size"]), -abs(d["relative_change"])))
+    # rank by relative change (floored so zero baselines do not dominate), effect size as tie-break
+    out.sort(key=lambda d: (-min(abs(d["relative_change"]), 5.0), -abs(d["effect_size"])))
     return out
 
 
@@ -254,8 +255,8 @@ def _latest_event_for(world, team: Optional[str], metric: str) -> Optional[Event
 def detect_emergence(world_int, world_base) -> list[dict[str, Any]]:
     """Named systemic phenomena identified from state (not scripted). Each item carries a linked event for 'why'."""
     out = []
-    hi = world_int.metrics_history[-1]
-    hb = world_base.metrics_history[-1] if world_base.metrics_history else hi
+    hi = _trailing(world_int.metrics_history, 6)
+    hb = _trailing(world_base.metrics_history, 6) if world_base.metrics_history else hi
     targets = {t for t in world_int.intervention_targets if t in world_int.teams}
     for tid, tm in hi["teams"].items():
         tb = hb["teams"].get(tid, tm)
@@ -310,6 +311,23 @@ def detect_emergence(world_int, world_base) -> list[dict[str, Any]]:
         out.append({"kind": "information_silo", "team": None, "label": "Information reach collapsed (silo forming)", "emergent": True,
                     "value": hi["information_reach"], "baseline": hb["information_reach"], "event_id": None})
     return out
+
+
+def _trailing(history: list[dict], n: int) -> dict:
+    """Metrics averaged over the last n months (team metrics included); the latest snapshot for non-numeric fields."""
+    tail = history[-n:]
+    last = dict(history[-1])
+    for k, v in history[-1].items():
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            last[k] = sum(h.get(k, 0) or 0 for h in tail) / len(tail)
+    teams = {}
+    for tid, tm in history[-1]["teams"].items():
+        teams[tid] = dict(tm)
+        for k, v in tm.items():
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                teams[tid][k] = sum((h["teams"].get(tid, {}).get(k, 0) or 0) for h in tail) / len(tail)
+    last["teams"] = teams
+    return last
 
 
 def _eid(world, entity: Optional[str], kind: str) -> Optional[int]:

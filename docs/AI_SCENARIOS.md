@@ -57,13 +57,16 @@ Triggers: `ai_introduced`, `ai_incident`, `ai_exceptions_high`, `supervision_gap
 ## Measured (prototype org, heuristic engine, 24 seeds × 36 months, frequencies *within the model*)
 | Scenario | Stable | Net cost saving | Hidden defects > 3/month | Deskilling | Approval bottleneck | Automation recovery |
 |---|---|---|---|---|---|---|
-| Automate back end (no backfill) | 92% | 50% | 100% | 25% | 29% | 33% |
-| Supervisory roles | 100% | 0% | 100% | 0% | 4% | 0% |
-| AI loops + delegated approvals | 100% | 0% | 100% | 0% | 0% | 0% |
+| Automate back end (no backfill) | 88% | 63% | 100% | 0% | 25% | 21% |
+| Supervisory roles | 96% | 0% | 100% | 4% | 0% | 0% |
+| AI loops + delegated approvals | 92% | 0% | 100% | 0% | 0% | 0% |
+| *(reference: Admin −20%, no AI)* | 50% | 79% | – | – | – | – |
 
-Distant effects that recur: **Executive errors** (AI-processed finance reporting leaking defects into executive approval)
-in 79–96% of worlds with a ~15–31 month lag; Programme Delivery backlog divergence in 46–79% with a 17–20 month lag;
-Communications and Operations error rises around month 24. Cost savings appear only where posts are actually removed —
+(Re-measured after per-person work allocation was introduced; the admin cut now bites harder because overload concentrates
+on individuals.) Distant effects that recur: **Executive errors** (AI-processed finance reporting leaking defects into
+executive approval) in 92–96% of worlds with a ~31 month lag; Programme Delivery backlog divergence in 67–83% with a
+15–18 month lag; Communications error rises around month 24. Use `scripts/batch_cli.py --sweep ai_base_exception_rate=0.08,0.16,0.3`
+(or any `SimConfig` field) to see how sensitive these are to the guessed constants. Cost savings appear only where posts are actually removed —
 agents plus their supervision and exceptions cost about what the routine work cost.
 
 ## Assumptions to challenge

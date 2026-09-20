@@ -46,15 +46,23 @@ SCENARIOS = [
 class Experiment:
     """Holds one baseline world and (optionally) one intervention world, stepping them in lock-step."""
 
-    def __init__(self, template: str, seed: int, engine_name: str, months_settle: int = 3, scale: float = 1.0):
+    def __init__(self, template: str, seed: int, engine_name: str, months_settle: int = 3, scale: float = 1.0,
+                 utilisation: float = 0.75, decisions_per_month: Optional[int] = None, config: Optional[SimConfig] = None):
         self.id = uuid.uuid4().hex[:10]
         self.template = template
         self.seed = seed
         self.engine_name = engine_name
+        self.settle = months_settle
         self.engine = self._make_engine(engine_name)
-        cfg = SimConfig()
-        if engine_name in ("laya", "needle"):
-            cfg.max_decisions_per_month = int(os.environ.get("WINDTUNNEL_AI_DECISIONS_PER_MONTH", "24"))   # keep AI engines interactive
+        if config is None:
+            cfg = SimConfig()
+            cfg.target_utilisation = utilisation
+            if decisions_per_month:
+                cfg.max_decisions_per_month = decisions_per_month          # same cap for every engine = fair comparison
+            elif engine_name in ("laya", "needle"):
+                cfg.max_decisions_per_month = int(os.environ.get("WINDTUNNEL_AI_DECISIONS_PER_MONTH", "24"))   # keep AI engines interactive
+        else:
+            cfg = config                                                    # replaying a saved experiment: its config wins
         self.baseline = World(template, seed, "baseline", decision_engine=self.engine, config=cfg, scale=scale)
         self.intervention: Optional[World] = None
         self.plan: Optional[ChangePlan] = None
@@ -108,6 +116,36 @@ class Experiment:
             self.plan = None
             self.fork_month = None
 
+    @classmethod
+    def from_saved(cls, store: Store, exp_id: str, up_to_month: Optional[int] = None, live_engine: str = "heuristic") -> "Experiment":
+        """Rebuild a saved experiment by deterministic replay: same seed, same config, recorded decisions per world.
+        Optionally stop at ``up_to_month`` (fork from that date) and continue with a live engine."""
+        from .decisions import RecordedDecisionEngine
+        saved = store.load_experiment(exp_id)
+        if not saved:
+            raise KeyError(exp_id)
+        cfg = SimConfig(**{k: v for k, v in (saved.get("config") or {}).items() if k in SimConfig.__dataclass_fields__})
+        runs = {r["label"]: r for r in store.list_runs(exp_id)}
+        base_dec = store.load_run_decisions(runs["baseline"]["id"]) if "baseline" in runs else []
+        exp = cls(saved["template"], saved["seed"], live_engine, months_settle=0, config=cfg)
+        exp.id = exp_id
+        exp.baseline.decision_engine = RecordedDecisionEngine(base_dec, source_engine=saved["engine"])
+        target = saved.get("months", 0) if up_to_month is None else min(up_to_month, saved.get("months", 0))
+        fork_month = saved.get("fork_month")
+        plan = validate_plan(saved["plan"]) if saved.get("plan") else None
+        while exp.baseline.month < target:
+            if plan and fork_month is not None and exp.baseline.month == fork_month and exp.intervention is None:
+                exp.fork(plan, saved.get("intervention_text", ""))
+                int_dec = store.load_run_decisions(runs["intervention"]["id"]) if "intervention" in runs else []
+                exp.intervention.decision_engine = RecordedDecisionEngine(int_dec, source_engine=saved["engine"])
+            exp.step()
+        if plan and fork_month is not None and exp.intervention is None and exp.baseline.month == fork_month:
+            exp.fork(plan, saved.get("intervention_text", ""))
+        for w in exp.worlds():                      # continue live from here
+            w.decision_engine = exp.engine
+        exp.replayed_from = {"experiment_id": exp_id, "months": target, "recorded_engine": saved["engine"]}
+        return exp
+
     def status(self) -> dict[str, Any]:
         eng = self.engine
         return {"id": self.id, "template": self.template, "seed": self.seed, "engine": self.engine_name, "engine_info": eng.describe(),
@@ -115,7 +153,10 @@ class Experiment:
                 "label": self.baseline.date_label(), "forked": self.intervention is not None, "fork_month": self.fork_month,
                 "plan": self.plan.model_dump() if self.plan else None, "intervention_text": self.intervention_text,
                 "playing": self.playing, "speed": self.speed, "headcount": len([e for e in self.baseline.employees.values() if e.status == "active"]),
-                "mean_step_ms": round(1000 * sum(self.step_times) / len(self.step_times), 1) if self.step_times else None}
+                "mean_step_ms": round(1000 * sum(self.step_times) / len(self.step_times), 1) if self.step_times else None,
+                "utilisation": self.baseline.config.target_utilisation, "decisions_per_month": self.baseline.config.max_decisions_per_month,
+                "replayed_from": getattr(self, "replayed_from", None),
+                "agreement": {w.label: w.agreement_report() for w in self.worlds()} if self.engine_name != "heuristic" else None}
 
 
 class Hub:
@@ -178,6 +219,8 @@ class NewExperiment(BaseModel):
     engine: str = "heuristic"
     settle_months: int = 3
     scale: float = 1.0
+    utilisation: float = 0.75
+    decisions_per_month: Optional[int] = None
 
 
 class InterpretRequest(BaseModel):
@@ -233,15 +276,33 @@ def get_experiment():
 def new_experiment(req: NewExperiment):
     if hub.experiment:
         hub.experiment.playing = False
-    hub.experiment = Experiment(req.template, req.seed, req.engine, req.settle_months, req.scale)
+    hub.experiment = Experiment(req.template, req.seed, req.engine, req.settle_months, req.scale, req.utilisation, req.decisions_per_month)
+    return get_experiment()
+
+
+@app.post("/api/load/{exp_id}")
+def load_experiment(exp_id: str, month: Optional[int] = None, engine: str = "heuristic"):
+    """Rebuild a saved experiment by replay (optionally only up to `month` = fork from that date)."""
+    if hub.experiment:
+        hub.experiment.playing = False
+    try:
+        hub.experiment = Experiment.from_saved(hub.store, exp_id, month, engine)
+    except KeyError:
+        raise HTTPException(404, f"no saved experiment {exp_id}")
     return get_experiment()
 
 
 @app.post("/api/interpret")
-def interpret(req: InterpretRequest):
+def interpret(req: InterpretRequest, fast: bool = False):
+    """fast=true returns the rule-based interpretation immediately (the UI then asks again for the Apple model's)."""
     exp = hub.ensure_experiment()
     hint = ", ".join(t.name for t in exp.baseline.teams.values())
     t0 = time.perf_counter()
+    if fast:
+        from .interventions.parser import rule_parse
+        plan = rule_parse(req.text)
+        return {"plan": plan.model_dump(), "source": "rules", "error": None, "latency_ms": round((time.perf_counter() - t0) * 1000),
+                "interpreted": describe_plan(exp.baseline, plan), "raw": None, "fast": True}
     plan = hub.parser.parse(req.text, org_hint=hint)
     return {"plan": plan.model_dump(), "source": hub.parser.last_source, "error": hub.parser.last_error,
             "latency_ms": round((time.perf_counter() - t0) * 1000), "interpreted": describe_plan(exp.baseline, plan),
@@ -257,7 +318,8 @@ async def run(req: RunRequest):
         raise HTTPException(400, f"invalid plan: {exc}")
     exp.fork(plan, req.text)
     hub.store.save_experiment({"id": exp.id, "template": exp.template, "seed": exp.seed, "engine": exp.engine_name, "intervention_text": req.text,
-                               "plan": plan.model_dump(), "config": exp.baseline.config.to_dict(), "months": exp.baseline.month, "name": req.text[:60]})
+                               "plan": plan.model_dump(), "config": exp.baseline.config.to_dict(), "months": exp.baseline.month, "name": req.text[:60],
+                               "fork_month": exp.fork_month})
     await hub.broadcast({"type": "forked", "status": exp.status(), "structure": exp.intervention.structure(),
                          "frame": exp.intervention.frames[-1] if exp.intervention.frames else None})
     return {"status": exp.status(), "interpreted": describe_plan(exp.baseline, plan)}
@@ -359,7 +421,8 @@ def diagnostics():
                          "last_latency_ms": round(hub.parser.fm.last_latency_ms), "last_source": hub.parser.last_source, "last_error": hub.parser.last_error},
             "memory_mb": round(rss_mb), "active_work_items": {w.label: sum(len(t.queue) for t in w.teams.values()) for w in exp.worlds()},
             "active_agents": {w.label: len([e for e in w.employees.values() if e.status == "active"]) for w in exp.worlds()},
-            "decisions_total": {w.label: len(w.decision_log) for w in exp.worlds()}, "clients": len(hub.clients)}
+            "decisions_total": {w.label: len(w.decision_log) for w in exp.worlds()}, "clients": len(hub.clients),
+            "agreement": {w.label: w.agreement_report() for w in exp.worlds()}}
 
 
 @app.post("/api/explain")
@@ -374,7 +437,8 @@ def save():
     versions = {"engine": exp.engine.describe(), "windtunnel": app.version}
     ids = {}
     hub.store.save_experiment({"id": exp.id, "template": exp.template, "seed": exp.seed, "engine": exp.engine_name, "intervention_text": exp.intervention_text,
-                               "plan": exp.plan.model_dump() if exp.plan else None, "config": exp.baseline.config.to_dict(), "months": exp.baseline.month, "name": exp.intervention_text[:60] or "baseline"})
+                               "plan": exp.plan.model_dump() if exp.plan else None, "config": exp.baseline.config.to_dict(), "months": exp.baseline.month,
+                               "name": exp.intervention_text[:60] or "baseline", "fork_month": exp.fork_month})
     for w in exp.worlds():
         rid = f"{exp.id}-{w.label}"
         hub.store.save_run(w, exp.id, rid, versions)

@@ -13,6 +13,11 @@
 * **Batch sanity** (32 seeds, admin −20%): stable 75%, workload-transfer cluster 22%, bottleneck 12.5%;
   Programme Delivery backlog diverged in 53% of worlds with a median lag of 19 months — a distant, unscripted effect.
 
+* **Replay fidelity**: a saved experiment reloaded by replay reproduces baseline and intervention metrics exactly.
+* **End-to-end smoke test** (`frontend/tests/smoke.spec.ts`, `npm run smoke`): loads the page, interprets and runs an
+  intervention, advances 24 months, checks effects, WHY, inspectors and diagnostics through the real server.
+* **Sensitivity sweeps**: `scripts/batch_cli.py --sweep <SimConfig field>=a,b,c` tabulates outcome frequencies per level.
+
 ## What is *not* validated
 Nothing here has been compared with a real organisation. Parameter values are plausible, not estimated.
 

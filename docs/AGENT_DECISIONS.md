@@ -40,6 +40,12 @@ budget → no recruitment; turnover intention < 0.2 → no leave). Effects live 
 Then downgrade-only **guards** grounded in state (workaround without urgency, quality cut without overload, leaving
 without intention, overtime without demand) can turn an action into continue_as_normal; the guard is logged.
 
+## Comparing engines fairly
+Set the same `decisions_per_month` cap for every engine (UI: New experiment → decisions/mo; API: `decisions_per_month`).
+When a model engine is running, the World also asks the rule engine in **shadow** for every decision and records the
+agreement rate and, per action, how often the model versus the rules chose it (`/api/diagnostics → agreement`, dev panel).
+A high agreement rate means the model is not adding behaviour; a low one tells you exactly where it differs.
+
 ## Decision cache
 Key = agent kind + archetype-bucketed state/context + sorted available actions + triggers (identity and free text
 excluded). Hits, misses and hit rate are shown in the dev panel. Recorded decisions can be replayed month-for-month.

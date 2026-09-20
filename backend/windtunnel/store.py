@@ -11,7 +11,7 @@ DEFAULT_PATH = os.environ.get("WINDTUNNEL_DB", os.path.join(os.path.dirname(os.p
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS experiments (id TEXT PRIMARY KEY, created REAL, name TEXT, template TEXT, seed INTEGER, engine TEXT,
-    intervention_text TEXT, plan_json TEXT, config_json TEXT, months INTEGER, notes TEXT);
+    intervention_text TEXT, plan_json TEXT, config_json TEXT, months INTEGER, notes TEXT, fork_month INTEGER);
 CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, experiment_id TEXT, label TEXT, seed INTEGER, engine TEXT, months INTEGER,
     created REAL, model_versions TEXT, final_metrics_json TEXT);
 CREATE TABLE IF NOT EXISTS metrics (run_id TEXT, month INTEGER, json TEXT, PRIMARY KEY (run_id, month));
@@ -30,23 +30,28 @@ class Store:
         self.conn = sqlite3.connect(path, check_same_thread=False)
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.executescript(SCHEMA)
+        cols = [r[1] for r in self.conn.execute("PRAGMA table_info(experiments)").fetchall()]
+        if "fork_month" not in cols:
+            self.conn.execute("ALTER TABLE experiments ADD COLUMN fork_month INTEGER")
+            self.conn.commit()
 
     # ------------------------------------------------------------- experiments
     def save_experiment(self, exp: dict[str, Any]) -> None:
-        self.conn.execute("INSERT OR REPLACE INTO experiments VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        self.conn.execute("INSERT OR REPLACE INTO experiments VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                           (exp["id"], exp.get("created", time.time()), exp.get("name", ""), exp["template"], exp["seed"], exp["engine"],
-                           exp.get("intervention_text", ""), json.dumps(exp.get("plan")), json.dumps(exp.get("config", {})), exp.get("months", 0), exp.get("notes", "")))
+                           exp.get("intervention_text", ""), json.dumps(exp.get("plan")), json.dumps(exp.get("config", {})), exp.get("months", 0), exp.get("notes", ""),
+                           exp.get("fork_month")))
         self.conn.commit()
 
     def list_experiments(self) -> list[dict[str, Any]]:
-        cur = self.conn.execute("SELECT id, created, name, template, seed, engine, intervention_text, months FROM experiments ORDER BY created DESC")
-        return [dict(zip(("id", "created", "name", "template", "seed", "engine", "intervention_text", "months"), r)) for r in cur.fetchall()]
+        cur = self.conn.execute("SELECT id, created, name, template, seed, engine, intervention_text, months, fork_month FROM experiments ORDER BY created DESC")
+        return [dict(zip(("id", "created", "name", "template", "seed", "engine", "intervention_text", "months", "fork_month"), r)) for r in cur.fetchall()]
 
     def load_experiment(self, exp_id: str) -> Optional[dict[str, Any]]:
         r = self.conn.execute("SELECT * FROM experiments WHERE id=?", (exp_id,)).fetchone()
         if not r:
             return None
-        keys = ("id", "created", "name", "template", "seed", "engine", "intervention_text", "plan_json", "config_json", "months", "notes")
+        keys = ("id", "created", "name", "template", "seed", "engine", "intervention_text", "plan_json", "config_json", "months", "notes", "fork_month")
         d = dict(zip(keys, r))
         d["plan"] = json.loads(d.pop("plan_json") or "null")
         d["config"] = json.loads(d.pop("config_json") or "{}")

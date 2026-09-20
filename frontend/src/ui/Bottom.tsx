@@ -46,8 +46,17 @@ export function Bottom() {
     if (!text.trim()) return
     set({ interpreting: true })
     try {
-      const r = await api('/interpret', { text })
-      set({ interpret: { text, plan: r.plan, interpreted: r.interpreted, source: r.source, latency_ms: r.latency_ms, error: r.error } })
+      // 1. rule-based interpretation appears immediately…
+      const fast = await api('/interpret?fast=true', { text })
+      set({ interpret: { text, plan: fast.plan, interpreted: fast.interpreted, source: 'rules', latency_ms: fast.latency_ms, error: null, pending: true } })
+      set({ interpreting: false })
+      // 2. …and is replaced by the Apple model's reading if it arrives while the modal is still showing that text, unedited
+      api('/interpret', { text }).then((r) => {
+        const cur = useStore.getState().interpret
+        if (!cur || cur.text !== text || cur.edited) return
+        if (r.source === 'apple_fm') set({ interpret: { ...cur, plan: r.plan, interpreted: r.interpreted, source: r.source, latency_ms: r.latency_ms, error: r.error, pending: false } })
+        else set({ interpret: { ...cur, pending: false, error: r.error } })
+      }).catch(() => { const cur = useStore.getState().interpret; if (cur && cur.text === text) set({ interpret: { ...cur, pending: false } }) })
     } finally { set({ interpreting: false }) }
   }
 

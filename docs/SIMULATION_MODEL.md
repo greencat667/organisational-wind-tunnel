@@ -22,9 +22,13 @@ All parameters live in `backend/windtunnel/config.py` (`SimConfig`) and `orggen.
 * **Arrivals** are Poisson per process per month, calibrated so each team starts near a target utilisation:
   admin 0.84, support 0.76, frontline/income/technology 0.74 (back offices run hotter, a documented assumption).
   High-volume processes are bundled into batch items (≤60 items/process/month) so the visual world stays legible.
-* **Queueing.** Each team works its queue in priority → age order. Any member with the stage skill ≥0.2 can work an item;
-  speed = 0.55 + 0.45 × proficiency. Items can be worked by several people in a month. If nobody has the skill the
-  item stalls. Priority-3 items more than 3 months past deadline are *dropped* (counted as lost work).
+* **Allocation.** At the start of each month the team's queue is *allocated to people*: each item (priority → age) goes to
+  the skilled member with the lowest load ratio, sticky for items already in progress; items bigger than ~35% of a
+  person's month are shared in chunks. **Personal workload = allocated hours / own capacity**, so overload concentrates on
+  individuals, key people emerge, and managers' `redistribute_work` rebalances the allocation before offloading to neighbours.
+* **Queueing.** Processing follows the allocation: the owner works first, colleagues with spare hours help. Any member with
+  the stage skill ≥0.2 can work an item; speed = 0.55 + 0.45 × proficiency. If nobody has the skill the item stalls.
+  Priority-3 items more than 3 months past deadline are *dropped* (counted as lost work).
 * **Errors.** P(error) = 0.02 + 0.08·max(0, stress−0.55) + 0.05·max(0, workload−1.1) + 0.04 if onboarding + 0.06 if
   cutting corners + 0.05 if the approval was bypassed. An error sends 40% of the stage hours back as rework.
 * **Approvals** need a manager (or a grade ≥5 senior, or team autonomy ≥0.75 for self-approval) with spare management
@@ -59,10 +63,17 @@ Packets (announcements on restructure, rumours when someone leaves) spread along
 0.35 × (0.5 + collaboration tendency) per holder per month; `share_information` decisions spread them deliberately.
 Negative packets leave small memory traces. Reach is measured, not assumed.
 
+## Interventions are phased
+Every additive change (capacity, budget, hours, agents, automation, role conversion) is spread evenly over the transition
+period in 2–6 steps; demand changes compound geometrically to the stated total. "Demand doubles over two years" therefore
+grows ~12% every ~5 months rather than doubling next month.
+
 ## Events and causality
 Every state change of consequence emits an `Event(kind, actor, entities, before, after, causes)`. Causes are wired at
-the point of change: decisions cite their triggers; transfers cite the decision; threshold crossings cite recent
-capacity/staffing/transfer events for that team; departures cite the person's recent negative experiences.
+the point of change and **only state-changing kinds may be cited** (staffing, capacity, transfers, agents, incidents,
+demand, protection, cancellations, overload of a person) — never routine decisions. Threshold events record numeric
+before/after (backlog months, capacity hours, headcount, management load) so a WHY chain reads as deltas, and a person's
+departure cites what happened *to* them (overload, ignored escalations, absence, role change).
 The intervention is a root event; `analysis.causal_orders` gives BFS distance; `why()` reconstructs a chain.
 `emergent` is set on systemic events that hit entities outside the intervention's targets.
 
@@ -70,5 +81,11 @@ The intervention is a root event; `analysis.causal_orders` gives BFS distance; `
 One tick = one month. Order: interventions → arrivals → people flow (exits, hires, onboarding) → absence & capacity →
 decisions → work processing → psychology & network → information → finance → metrics/threshold events → frame.
 
-## Measured baseline behaviour (prototype, heuristic engine, 36 months, seeds 7/11/23/42)
-backlog 0.04–0.06 months, worst team 0.19–0.37, delivery 0.75–0.78, turnover 6–8/year, headcount 99–102 — stable.
+## Slack presets
+`SimConfig.target_utilisation` (UI: slack 0.65 · normal 0.75 · lean 0.85) sets how stretched the organisation starts;
+admin teams run ~12% hotter than the target. A utilisation sweep of the admin cut (12 worlds each): at 0.65, 92% of worlds
+stay stable; at 0.85, none do and median backlog reaches 2.3 months — the intervention's outcome depends on slack more than
+on anything else in the model.
+
+## Measured baseline behaviour (prototype, heuristic engine, 36 months, seeds 7/11/23)
+backlog 0.04 months, worst team 0.19–0.37, delivery 0.75–0.78, turnover 6–8/year, mean personal workload 0.74–0.81 — stable.

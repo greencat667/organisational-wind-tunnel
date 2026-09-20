@@ -21,9 +21,10 @@ class RecordedDecisionEngine(AgentDecisionEngine):
         rec = self._by_key.get((request.month, request.agent_id))
         if rec and rec.get("action") in request.available_actions:
             self.hits += 1
-            return AgentDecision(action=rec["action"], probabilities=rec.get("probabilities", {rec["action"]: 1.0}),
-                                 confidence=float(rec.get("confidence", 1.0)), engine=f"recorded({self.source_engine})",
-                                 target=rec.get("target"), scores=rec.get("scores", {}), raw={"recorded": True})
+            # the recorded action is final: probabilities and confidence are set so routing cannot re-sample it
+            return AgentDecision(action=rec["action"], probabilities={rec["action"]: 1.0}, confidence=1.0,
+                                 engine=f"recorded({self.source_engine})", target=rec.get("target"), scores=rec.get("scores", {}),
+                                 raw={"recorded": True, "original_probabilities": rec.get("probabilities"), "original_confidence": rec.get("confidence")})
         self.misses += 1
         d = self._fallback.decide(request)
         d.fallback = True

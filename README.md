@@ -60,7 +60,9 @@ maintaining existing frontline delivery* → **SIMULATE CHANGE** → check the i
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q tests     # capacity arithmetic, queues, budgets, determinism, forking, interventions, causality, store, adapters
+.venv/bin/python -m pytest -q tests     # 34 tests: physics, determinism, forking, interventions, causality, AI mechanics, store, adapters
+(cd frontend && npm run smoke)          # Playwright end-to-end smoke test against the real servers
+.venv/bin/python scripts/batch_cli.py --n 100 --sweep target_utilisation=0.65,0.75,0.85   # sensitivity sweep
 ```
 
 ## Documentation

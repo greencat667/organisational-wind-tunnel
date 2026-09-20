@@ -19,7 +19,7 @@ export function InterpretModal() {
     <div className="modal-bg" onClick={() => set({ interpret: null })}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h2>INTERPRETED CHANGE</h2>
-        <div className="src">{it.source === 'apple_fm' ? `Apple Foundation Model (on-device) · ${it.latency_ms} ms` : `rule-based parser (Apple model ${it.error ? 'unavailable' : 'not used'})`}{it.error ? ` · ${it.error.slice(0, 80)}` : ''}</div>
+        <div className="src">{it.source === 'apple_fm' ? `Apple Foundation Model (on-device) · ${it.latency_ms} ms` : it.pending ? <>rule-based parser · <span className="spinner" style={{ width: 8, height: 8 }} /> asking the Apple on-device model…</> : `rule-based parser (Apple model ${it.error ? 'unavailable' : 'not used'})`}{!it.pending && it.error ? ` · ${it.error.slice(0, 80)}` : ''}</div>
         <div className="muted" style={{ fontSize: 12, marginTop: 8, color: 'var(--text-dim)' }}>“{it.text}”</div>
         {!editing ? (
           <div className="lines">{it.interpreted.map((l, i) => <div key={i}>{l}</div>)}</div>
@@ -29,7 +29,7 @@ export function InterpretModal() {
         {err && <div style={{ color: 'var(--danger)', fontSize: 12 }}>{err}</div>}
         <div className="actions">
           <button className="btn ghost" onClick={() => set({ interpret: null })}>CANCEL</button>
-          <button className="btn" onClick={() => setEditing(!editing)}>{editing ? 'VIEW' : 'EDIT'}</button>
+          <button className="btn" onClick={() => { setEditing(!editing); set({ interpret: { ...it, edited: true, pending: false } }) }}>{editing ? 'VIEW' : 'EDIT'}</button>
           <button className="btn primary" onClick={run}>RUN EXPERIMENT</button>
         </div>
       </div>

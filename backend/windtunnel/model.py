@@ -53,6 +53,7 @@ class Employee:
     workload: float = 0.0         # assigned hours / capacity hours (ratio)
     capacity_hours: float = 0.0   # effective productive hours this month
     hours_worked: float = 0.0     # hours actually spent on work items this month
+    assigned_hours: float = 0.0   # hours of queued work allocated to this person this month (drives personal workload)
     overtime_hours: float = 0.0
     stress: float = 0.2
     morale: float = 0.7

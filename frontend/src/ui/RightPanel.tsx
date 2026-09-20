@@ -51,6 +51,7 @@ function Why() {
               <div key={c.id} className={`node ${c.kind === 'intervention' ? 'root' : ''}`}>
                 <div className="when">{c.date}{c.emergent ? <span className="tag">emergent</span> : null}{c.kind === 'intervention' ? <span className="tag blue">intervention</span> : null}</div>
                 <div>{c.description}</div>
+                <Delta node={data.nodes.find((n: any) => n.id === c.id)} />
               </div>
             ))}
           </div>
@@ -61,6 +62,22 @@ function Why() {
     </div>
   )
 }
+
+/** Numeric before → after pairs recorded on an event, rendered as a compact delta line. */
+function Delta({ node }: { node: any }) {
+  if (!node?.before || !node?.after) return null
+  const parts: string[] = []
+  for (const k of Object.keys(node.after)) {
+    const a = node.after[k], b = node.before[k]
+    if (typeof a === 'number' && typeof b === 'number' && a !== b) {
+      const pct = b !== 0 ? ` (${a > b ? '+' : ''}${Math.round(((a - b) / Math.abs(b)) * 100)}%)` : ''
+      parts.push(`${k.replace(/_/g, ' ')} ${fmtNum(b)} → ${fmtNum(a)}${pct}`)
+    }
+  }
+  if (!parts.length) return null
+  return <div className="mono" style={{ fontSize: 10, color: 'var(--accent-2)', marginTop: 2 }}>{parts.slice(0, 3).join(' · ')}</div>
+}
+function fmtNum(v: number) { return Math.abs(v) >= 100 ? Math.round(v).toLocaleString() : Number.isInteger(v) ? String(v) : v.toFixed(2) }
 
 function EmployeeInspector() {
   const sel = useStore((s) => s.selection)!
@@ -77,8 +94,8 @@ function EmployeeInspector() {
       <div style={{ fontSize: 13 }}>{e.role_title} · {d.team.name}{e.is_manager ? ' · manager' : e.role_kind === 'supervisor' ? ' · supervises AI agents' : ''}</div>
       <div className="muted">{e.archetype} · {e.experience_months} months tenure · grade {e.grade} · {e.status}{e.onboarding_months_left ? ` · onboarding ${e.onboarding_months_left} mo` : ''}</div>
       <div style={{ marginTop: 8 }}>
-        {[['Workload', e.workload, 1.5], ['Stress', e.stress, 1], ['Morale', e.morale, 1], ['Trust in management', e.trust_management, 1], ['Turnover intention', e.turnover_intention, 1], ['Team backlog (months)', d.team.backlog_months, 3]].map(([k, v, max]: any) => (
-          <div key={k}><div className="row"><span>{k}</span><span>{typeof v === 'number' ? (k === 'Workload' ? `${Math.round(v * 100)}%` : v.toFixed(2)) : v}</span></div><div className="bar"><div style={{ width: `${Math.min(100, (v / max) * 100)}%`, background: k === 'Stress' || k === 'Turnover intention' ? 'var(--danger)' : 'var(--accent)' }} /></div></div>
+        {[['Workload (own allocation)', e.workload, 1.5], ['Stress', e.stress, 1], ['Morale', e.morale, 1], ['Trust in management', e.trust_management, 1], ['Turnover intention', e.turnover_intention, 1], ['Team backlog (months)', d.team.backlog_months, 3]].map(([k, v, max]: any) => (
+          <div key={k}><div className="row"><span>{k}</span><span>{typeof v === 'number' ? (k.startsWith('Workload') ? `${Math.round(v * 100)}% · ${Math.round(e.assigned_hours || 0)}h / ${Math.round(e.capacity_hours || 0)}h` : v.toFixed(2)) : v}</span></div><div className="bar"><div style={{ width: `${Math.min(100, (v / max) * 100)}%`, background: k === 'Stress' || k === 'Turnover intention' ? 'var(--danger)' : 'var(--accent)' }} /></div></div>
         ))}
       </div>
       <h4>Traits</h4>

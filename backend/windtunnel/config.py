@@ -38,7 +38,14 @@ class SimConfig:
     confidence_probabilistic: float = 0.5
     # automation
     automation_implementation_hours_per_level: float = 400.0   # team hours needed per 100% automation level
-    # AI agents
+    # organisation
+    target_utilisation: float = 0.75           # slack preset: lean 0.85 · normal 0.75 · slack 0.65 (admin teams run ~12% hotter)
+    # AI agents (team defaults; per-team values may be overridden by change plans)
+    ai_hours_per_agent: float = 120.0
+    ai_monthly_cost_per_agent: float = 900.0
+    ai_supervision_hours: float = 12.0
+    ai_base_exception_rate: float = 0.16
+    ai_silent_error_rate: float = 0.04
     ai_incident_probability: float = 0.03      # monthly P(outage/regression) per team with live agents
     ai_learning_months: float = 9.0            # exception rate decays towards 45% of base with this time constant
     ai_drift_factor: float = 0.8               # exception rate rises by this × (1 - supervision coverage)

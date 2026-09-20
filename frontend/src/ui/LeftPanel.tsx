@@ -157,6 +157,8 @@ function Saved() {
   const [tpl, setTpl] = useState('prototype')
   const [seed, setSeed] = useState(7)
   const [engine, setEngine] = useState('heuristic')
+  const [util, setUtil] = useState(0.75)
+  const [cap, setCap] = useState<string>('')
   const [busy, setBusy] = useState(false)
   const load = () => api('/experiments').then(setData)
   useEffect(() => { load() }, [])
@@ -168,9 +170,11 @@ function Saved() {
         <select value={tpl} onChange={(e) => setTpl(e.target.value)} style={inp}><option value="prototype">prototype · 100 people</option><option value="charity500">charity500 · 500 people</option></select>
         <input className="mono" type="number" value={seed} onChange={(e) => setSeed(+e.target.value)} style={{ ...inp, width: 64 }} />
         <select value={engine} onChange={(e) => setEngine(e.target.value)} style={inp}><option value="heuristic">heuristic rules</option><option value="laya">Laya</option><option value="needle">Needle 3</option></select>
-        <button className="btn sm primary" disabled={busy} onClick={async () => { setBusy(true); try { await api('/experiment', { template: tpl, seed, engine }); await useStore.getState().init() } finally { setBusy(false) } }}>{busy ? <span className="spinner" /> : 'NEW'}</button>
+        <select value={util} onChange={(e) => setUtil(+e.target.value)} style={inp} title="How stretched the organisation starts"><option value={0.65}>slack org (65%)</option><option value={0.75}>normal org (75%)</option><option value={0.85}>lean org (85%)</option></select>
+        <input className="mono" placeholder="decisions/mo" title="Cap on agent evaluations per month, applied to every engine (blank = engine default)" value={cap} onChange={(e) => setCap(e.target.value)} style={{ ...inp, width: 92 }} />
+        <button className="btn sm primary" disabled={busy} onClick={async () => { setBusy(true); try { await api('/experiment', { template: tpl, seed, engine, utilisation: util, decisions_per_month: cap ? +cap : null }); await useStore.getState().init() } finally { setBusy(false) } }}>{busy ? <span className="spinner" /> : 'NEW'}</button>
       </div>
-      <div className="muted" style={{ marginTop: 4 }}>Same organisation, same seed, different engine = a fair Laya vs Needle vs rules comparison. Model engines load on first use (Laya ~25 s).</div>
+      <div className="muted" style={{ marginTop: 4 }}>Same organisation, seed and decision cap, different engine = a fair Laya vs Needle vs rules comparison (the dev panel shows how often the model agrees with the rules). Model engines load on first use (Laya ~25 s).</div>
       <h4>Save & export</h4>
       <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
         <button className="btn sm" onClick={async () => { await api('/save', {}); load() }}>save experiment</button>
@@ -178,8 +182,16 @@ function Saved() {
         <a className="btn sm" href="/api/export/intervention/events" download>events.json</a>
         <a className="btn sm" href="/api/export/intervention/decisions" download>decisions.json</a>
       </div>
-      <h4>Experiments</h4>
-      {data?.experiments?.map((e: any) => <div className="row" key={e.id}><span>{e.name || e.id}</span><span>{e.engine} · m{e.months}</span></div>)}
+      <h4>Experiments <span className="muted">· load replays the saved run exactly; fork replays to a month and continues live</span></h4>
+      {data?.experiments?.map((e: any) => (
+        <div className="row" key={e.id} style={{ alignItems: 'center' }}>
+          <span>{e.name || e.id} <span className="muted">{e.engine} · {e.months} mo{e.fork_month != null ? ` · forked m${e.fork_month}` : ''}</span></span>
+          <span style={{ display: 'flex', gap: 4 }}>
+            <button className="btn sm" disabled={busy} onClick={async () => { setBusy(true); try { await api(`/load/${e.id}`, {}); await useStore.getState().init() } finally { setBusy(false) } }}>load</button>
+            <button className="btn sm" disabled={busy} onClick={async () => { const m = prompt(`Fork from which month? (0–${e.months})`, String(Math.max(0, (e.fork_month ?? 0) + 6))); if (m === null) return; setBusy(true); try { await api(`/load/${e.id}?month=${+m}&engine=${engine}`, {}); await useStore.getState().init() } finally { setBusy(false) } }}>fork…</button>
+          </span>
+        </div>
+      ))}
       <h4>Batches</h4>
       {data?.batches?.map((b: any) => <div className="row" key={b.id}><span>{b.id}</span><span>{b.n} × {b.months}mo</span></div>)}
       <div className="muted" style={{ marginTop: 8 }}>Stored in a local SQLite file. No telemetry, no cloud.</div>

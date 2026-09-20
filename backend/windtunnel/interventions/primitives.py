@@ -306,9 +306,16 @@ def _manager_redistribute(world: "World", mgr: "Employee", team, cause: int, max
     if len(members) < 2:
         return
     moved = 0
-    # within-team: work is pooled at team level already; redistribution here means moving items to a neighbour
-    # team with spare capacity OR reassigning the team's queue order. We do both cheaply: reorder, then offload.
+    # within-team: rebalance this month's allocation evenly across members (ignoring stickiness), then offload to
+    # neighbouring teams with spare capacity if the team as a whole is still over capacity
     queue_items = [world.work_items[i] for i in team.queue if i in world.work_items]
+    world._allocate(team, [w for w in queue_items if w.status in ("queued", "in_progress")], members, balance=True)
+    if team.workload <= 1.0:
+        for m in members:
+            m.trust_management = min(1.0, m.trust_management + 0.01)
+        world.emit("work_redistributed", mgr.id, "redistribute_work", [team.id], {}, {"moved": 0, "rebalanced": True}, [cause],
+                   f"{mgr.name} rebalanced work across {team.name}")
+        return
     for nt in world.neighbour_teams(team.id):
         t = world.teams[nt]
         if t.function == "management" or not t.accepting_transfers or t.workload > 0.85:
@@ -346,8 +353,8 @@ def apply_change(world: "World", change: dict[str, Any]) -> None:
     if op == "_ai_process_live":
         p = world.processes.get(change["process"])
         if p:
-            p.ai_run_share = float(change["share"])
-            p.ai_delegated_approvals = bool(change.get("delegate", False))
+            p.ai_run_share = min(1.0, p.ai_run_share + float(change["share"]))
+            p.ai_delegated_approvals = p.ai_delegated_approvals or bool(change.get("delegate", False))
             teams_touched = [world.resolve_team(s.team_id) for s in p.stages if not s.approval]
             world.emit("ai_process_live", "system", "ai_process_live", [p.id] + teams_touched, {}, {"share": p.ai_run_share, "delegate": p.ai_delegated_approvals},
                        [world.intervention_root] if world.intervention_root is not None else [],
@@ -393,7 +400,10 @@ def apply_change(world: "World", change: dict[str, Any]) -> None:
             team.budget_annual *= (1 - frac * 0.9)
             world.departments[team.dept_id].budget_annual -= team.budget_annual * frac * 0.9 / max(0.01, 1 - frac * 0.9)
             world.intervention_targets.update([tid] + [m for m in team.member_ids])
-            ev = world.emit("capacity_reduced", "intervention", "reduce_capacity", [tid], {"headcount": len(members) + 1}, {"headcount": len(members) + 1 - n_remove, "removed": n_remove},
+            cap_before = team.capacity_hours
+            ev = world.emit("capacity_reduced", "intervention", "reduce_capacity", [tid],
+                            {"headcount": len(members) + 1, "capacity_hours": round(cap_before)},
+                            {"headcount": len(members) + 1 - n_remove, "removed": n_remove, "capacity_hours": round(cap_before * (len(members) + 1 - n_remove) / max(1, len(members) + 1))},
                             causes, f"{team.name} reduced by {n_remove} roles ({int(frac*100)}%)", significant=True)
             for m in world.active_members(team):
                 m.memory.append(MemoryTrace(world.month, "restructure", -0.35, 1.0))
@@ -715,12 +725,17 @@ def schedule_plan(world: "World", plan: "ChangePlan") -> int:
             world.teams[tid].protected = True
     for ch in plan.changes:
         d = ch.model_dump()
-        if ch.operation in ("reduce_capacity", "change_budget", "change_working_hours") and T > 1 and abs(ch.amount or 0) > 0.05:
-            # phase the change over the transition period (deterministic, evenly)
-            steps = min(T, 3)
-            per = (ch.amount or 0.0) / steps
+        additive = ch.operation in ("reduce_capacity", "change_budget", "change_working_hours", "increase_capacity", "deploy_ai_agents",
+                                    "ai_run_process", "enable_automation", "convert_to_supervisory")
+        multiplicative = ch.operation == "change_demand"
+        if (additive or multiplicative) and T > 1 and abs(ch.amount or 0) > 0.05:
+            # phase the change over the transition period (deterministic, evenly): up to 6 steps, or one per quarter
+            steps = max(2, min(6, T // 3 if T >= 6 else T))
+            amt = ch.amount or 0.0
+            per = amt / steps if additive else (1.0 + amt) ** (1.0 / steps) - 1.0
             for k in range(steps):
-                world.scheduled.append({**d, "op": ch.operation, "amount": per, "month": start + k * max(1, T // steps)})
+                world.scheduled.append({**d, "op": ch.operation, "amount": per, "month": start + round(k * (T - 1) / (steps - 1)) if steps > 1 else start,
+                                        "phase": f"{k+1}/{steps}"})
         else:
             world.scheduled.append({**d, "op": ch.operation, "month": start})
     return root.id

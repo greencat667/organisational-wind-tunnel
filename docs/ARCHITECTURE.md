@@ -41,6 +41,13 @@ Renderer and batch runner both consume the same World; frames are only produced 
    employees glide to new positions, work items travel along arcs from → to, information pulses hop between people.
 4. Inspectors (`/api/employee`, `/api/team`), `/api/effects`, `/api/why`, `/api/network`, `/api/diagnostics` read live state.
 
+## Save, load, fork from any date
+`/api/save` writes experiments, runs, metrics, events, decisions and a snapshot to SQLite. `/api/load/{id}` rebuilds an
+experiment by **deterministic replay**: same template, seed and config, with each world's recorded decisions replayed by
+`RecordedDecisionEngine`, so the reloaded state is byte-identical to what was saved (tested). `/api/load/{id}?month=M`
+replays only to month M and hands both worlds to a live engine — fork from any date. Replay is cheap (~0.3 s for
+36 months of a 100-person organisation) and needs no deserialiser.
+
 ## Forking
 
 `World.fork()` deep-copies everything (RNG state included) and `schedule_plan()` registers the intervention root

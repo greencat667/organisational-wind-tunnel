@@ -35,6 +35,15 @@ from .model import Employee, Event, InfoPacket, MemoryTrace, Team, Vacancy, Work
 from .orggen import GRADE_SALARY, generate_organisation, productive_hours
 
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+# event kinds that change a team's state and may therefore be cited as causes of later threshold events
+STATE_CHANGING_KINDS = {"intervention", "capacity_reduced", "capacity_increased", "role_removed", "employee_left", "employee_hired", "internal_move",
+                        "work_transferred", "work_redistributed", "work_cancelled", "work_dropped", "team_protected", "overtime_approved",
+                        "vacancy_blocked", "post_not_replaced", "hiring_freeze", "manager_changed", "absence", "team_merged", "layer_removed",
+                        "demand_changed", "budget_changed", "hours_changed", "shock", "automation_live", "ai_agents_live", "ai_incident",
+                        "ai_paused", "ai_expanded", "ai_process_live", "roles_converted", "staff_retrained", "ai_quality_leak", "workaround",
+                        "approval_removed", "approval_added", "reporting_changed", "backlog_threshold", "management_overload", "escalation"}
+PERSONAL_CAUSE_KINDS = {"overtime", "escalation", "absence", "rework", "quality_reduced", "workaround", "manager_changed", "roles_converted",
+                        "staff_retrained", "internal_move", "role_removed", "capacity_reduced", "team_merged", "ai_incident", "employee_overloaded"}
 # event kinds that describe a systemic state change (candidates for the EMERGENT label when they hit non-target entities)
 SYSTEMIC_KINDS = {"backlog_threshold", "management_overload", "turnover_spike", "team_protected", "work_dropped", "hiring_freeze",
                   "vacancy_blocked", "manager_changed", "automation_live", "ai_agents_live", "work_cancelled", "internal_move",
@@ -57,7 +66,14 @@ class World:
         self.decision_engine = decision_engine or HeuristicDecisionEngine()
         self._heuristic = HeuristicDecisionEngine()
         self.record_frames = record_frames
-        deps, teams, emps, procs = generate_organisation(template, seed, scale=scale)
+        deps, teams, emps, procs = generate_organisation(template, seed, scale=scale, target_utilisation=self.config.target_utilisation)
+        for t in teams.values():
+            t.ai_hours_per_agent = self.config.ai_hours_per_agent
+            t.ai_monthly_cost_per_agent = self.config.ai_monthly_cost_per_agent
+            t.ai_supervision_hours = self.config.ai_supervision_hours
+            t.ai_base_exception_rate = self.config.ai_base_exception_rate
+            t.ai_exception_rate = self.config.ai_base_exception_rate
+            t.ai_silent_error_rate = self.config.ai_silent_error_rate
         self.departments = deps
         self.teams = teams
         self.employees = emps
@@ -89,6 +105,7 @@ class World:
         self.timing: dict[str, float] = {}
         self.team_alias: dict[str, str] = {}        # merged/removed team -> receiving team
         self.baseline_metrics: Optional[dict[str, Any]] = None
+        self.agreement = {"n": 0, "agree": 0, "by_action": defaultdict(lambda: {"model": 0, "rules": 0})}   # model vs shadow rules
         self.leavers_by_month: dict[int, int] = defaultdict(int)
         self.threshold_state: dict[str, str] = {}   # "team:backlog" -> band
         self._warm_start()
@@ -130,12 +147,18 @@ class World:
             ev.emergent = not any(e in self.intervention_targets for e in entities)
         return ev
 
-    def recent_team_causes(self, team_id: str, months: int = 3, limit: int = 6) -> list[int]:
-        ids = [i for i in self._team_events.get(team_id, []) if self.events[i].month >= self.month - months]
+    def recent_team_causes(self, team_id: str, months: int = 3, limit: int = 6, kinds: Optional[set] = None) -> list[int]:
+        """Recent events on a team that could plausibly have moved its state. By default only *state-changing* kinds
+        (staffing, capacity, transfers, agents, incidents, demand) count — never routine decisions."""
+        kinds = STATE_CHANGING_KINDS if kinds is None else kinds
+        ids = [i for i in self._team_events.get(team_id, []) if self.events[i].month >= self.month - months and self.events[i].kind in kinds]
         return ids[-limit:]
 
-    def recent_emp_causes(self, emp_id: str, months: int = 4, limit: int = 5) -> list[int]:
-        ids = [i for i in self._emp_events.get(emp_id, []) if self.events[i].month >= self.month - months]
+    def recent_emp_causes(self, emp_id: str, months: int = 4, limit: int = 5, kinds: Optional[set] = None) -> list[int]:
+        """Recent events that happened *to* this person (overload, escalation ignored, absence, role change…), not their
+        routine decisions."""
+        kinds = PERSONAL_CAUSE_KINDS if kinds is None else kinds
+        ids = [i for i in self._emp_events.get(emp_id, []) if self.events[i].month >= self.month - months and self.events[i].kind in kinds]
         return ids[-limit:]
 
     def active_members(self, team: Team) -> list[Employee]:
@@ -460,14 +483,14 @@ class World:
         eid = f"E{self._emp_seq:04d}"
         first = ["Riley", "Jesse", "Casey", "Morgan", "Robin", "Quinn", "Avery", "Dana", "Sky", "Remy"]
         last = ["Park", "Quist", "Ali", "Bennett", "Cruz", "Doyle", "Ekwueme", "Frost", "Grant", "Hale"]
-        name = f"{self.rng.choice(first)} {self.rng.choice(last)}"
-        skills = {s: round(self.rng.uniform(0.45, 0.8), 2) for s in team.skills_provided[:1]}
+        name = f"{first[int(self._r('hire_first', eid) * 10) % 10]} {last[int(self._r('hire_last', eid) * 10) % 10]}"
+        skills = {s: round(0.45 + 0.35 * self._r("hire_skill", f"{eid}:{s}"), 2) for s in team.skills_provided[:1]}
         for s in team.skills_provided[1:]:
-            skills[s] = round(self.rng.uniform(0.25, 0.6), 2)
+            skills[s] = round(0.25 + 0.35 * self._r("hire_skill", f"{eid}:{s}"), 2)
         e = Employee(id=eid, name=name, role=v.role, role_title=team.name.split()[0] + " Officer", team_id=team.id,
                      dept_id=team.dept_id, grade=v.grade, salary=GRADE_SALARY[min(7, v.grade)], contracted_hours=self.config.monthly_hours,
                      skills=skills, experience_months=0, manager_id=team.manager_id, onboarding_months_left=self.config.onboarding_months,
-                     hired_month=self.month, institutional_knowledge=0.15, archetype=self.rng.choice(["steady", "helper", "mobile", "cautious"]),
+                     hired_month=self.month, institutional_knowledge=0.15, archetype=["steady", "helper", "mobile", "cautious"][int(self._r("hire_arch", eid) * 4) % 4],
                      morale=0.72, stress=0.25, trust_management=0.65, commitment=0.5)
         e.skill_at_start = dict(e.skills)
         if team.supervisory_share > 0 and self._r("hire_role", eid) < team.supervisory_share:
@@ -544,12 +567,58 @@ class World:
             if workload:
                 t.demand_hours = hours
                 t.workload = hours / max(1.0, t.capacity_hours) if t.capacity_hours > 0 else (2.0 if items else 0.0)
-                for m in members:
-                    # personal workload: the team's demand shared in proportion to capacity
-                    m.workload = t.workload if m.capacity_hours > 0 else (1.5 if items else 0.0)
+                self._allocate(t, items, members)
             t.backlog_hours = hours
             t.morale = sum(m.morale for m in members) / len(members) if members else 0.0
             t.stress = sum(m.stress for m in members) / len(members) if members else 0.0
+
+    def _allocate(self, t: Team, items: list[WorkItem], members: list[Employee], balance: bool = False) -> None:
+        """Plan who does what this month. Each item goes to the skilled member with the lowest load ratio (sticky for
+        items already in progress unless ``balance``). Personal workload = allocated hours / own capacity, so overload can
+        concentrate on individuals and key people can emerge."""
+        workers = [m for m in members if m.capacity_hours > 0 and m.absent_fraction < 1.0]
+        for m in members:
+            m.assigned_hours = 0.0
+            m.active_tasks = []
+        if not workers:
+            for m in members:
+                m.workload = 1.5 if items else 0.0
+            return
+        load = {m.id: 0.0 for m in workers}
+        cap = {m.id: max(1.0, m.capacity_hours) for m in workers}
+        by_id = {m.id: m for m in workers}
+        approvals = 0.0
+        for w in sorted(items, key=lambda w: (w.priority, w.created_month, w.id)):
+            stage = self.processes[w.process_id].stages[w.stage_index]
+            if stage.approval:
+                approvals += stage.hours_mean
+                continue
+            skilled = [m for m in workers if m.skills.get(stage.skill, 0.0) >= 0.2]
+            if not skilled:
+                continue
+            keep = by_id.get(w.assignee_id) if (w.assignee_id and not balance and w.status == "in_progress") else None
+            remaining = w.remaining_hours
+            first = True
+            while remaining > 0.01:
+                if first and keep is not None and keep.skills.get(stage.skill, 0.0) >= 0.2:
+                    m = keep
+                else:
+                    m = min(skilled, key=lambda m: (load[m.id] / cap[m.id], -m.skills.get(stage.skill, 0.0), m.id))
+                rate = 0.55 + 0.45 * m.skills.get(stage.skill, 0.2)
+                chunk = min(remaining, max(4.0, 0.35 * cap[m.id] * rate))   # a big item is shared, in chunks
+                load[m.id] += chunk / rate
+                remaining -= chunk
+                if first:
+                    w.assignee_id = m.id
+                    first = False
+                if w.id not in m.active_tasks:
+                    m.active_tasks.append(w.id)
+        for m in workers:
+            m.assigned_hours = load[m.id]
+            m.workload = load[m.id] / cap[m.id]
+        for m in members:
+            if m.id not in load:
+                m.workload = 0.0
 
     # ---------------------------------------------------------- 5. decisions
     def _decisions(self) -> int:
@@ -608,7 +677,7 @@ class World:
         if len(candidates) > cfg.max_decisions_per_month:
             keep = candidates[: cfg.max_decisions_per_month // 2]
             rest = candidates[cfg.max_decisions_per_month // 2:]
-            self.rng.shuffle(rest)
+            rest.sort(key=lambda c: self._r("decision_pick", c[0].id))
             candidates = keep + rest[: cfg.max_decisions_per_month - len(keep)]
         n = 0
         self._trigger_counts: dict[str, int] = defaultdict(int)
@@ -721,6 +790,15 @@ class World:
         decision = self._guards(decision, emp, req)
         if decision.action not in available:
             decision.action = "continue_as_normal"
+        shadow_action = None
+        if getattr(self.decision_engine, "name", "heuristic") != "heuristic":
+            # shadow rules decision, sampled with the same common random number, so agreement is measured like-for-like
+            shadow = self._heuristic.decide(req)
+            shadow_action = self._sample(shadow.probabilities, req.agent_id) if shadow.confidence < self.config.confidence_execute else shadow.action
+            self.agreement["n"] += 1
+            self.agreement["agree"] += int(shadow_action == decision.action)
+            self.agreement["by_action"][decision.action]["model"] += 1
+            self.agreement["by_action"][shadow_action]["rules"] += 1
         if decision.action in targets and not decision.target:
             decision.target = self._pick_target(emp, decision.action, targets[decision.action])
         emp.effort_level = clamp(decision.scores.get("effort", 1.0), 0.6, 1.15)
@@ -737,6 +815,7 @@ class World:
             "probabilities": {k: round(v, 3) for k, v in decision.probabilities.items()}, "confidence": round(decision.confidence, 3),
             "engine": decision.engine, "latency_ms": round(decision.latency_ms, 1), "route": decision.route, "cached": decision.cached,
             "fallback": decision.fallback, "scores": decision.scores, "state_text": req.state_text(), "raw": decision.raw, "event_id": ev.id,
+            "shadow_action": shadow_action,
         })
         from .interventions.primitives import apply_action
         apply_action(self, emp, decision, ev.id)
@@ -797,7 +876,7 @@ class World:
                 ties = sum(emp.relationships.get(m, 0.0) for m in t.member_ids)
                 return (ties * 2.0) - t.workload
             return max(options, key=score)
-        return self.rng.choice(options)
+        return sorted(options)[int(self._r("target", f"{emp.id}:{action}") * len(options)) % len(options)]
 
     # --------------------------------------------------------- 6. work processing
     def _process_work(self) -> None:
@@ -806,6 +885,7 @@ class World:
             members = [m for m in self.active_members(t) if m.capacity_hours > 0]
             avail = {m.id: m.capacity_hours for m in members}   # capacity already includes any overtime decided this month
             mgmt_avail = t.management_capacity_hours
+            by_id = {m.id: m for m in members}
             for m in members:
                 m.active_tasks = []
             queue = [self.work_items[i] for i in t.queue if i in self.work_items and self.work_items[i].status in ("queued", "in_progress")]
@@ -854,7 +934,8 @@ class World:
                 if not skilled:
                     still.append(w.id)
                     continue
-                skilled.sort(key=lambda m: (-avail[m.id], -m.skills.get(stage.skill, 0.0)))
+                # planned assignee first (personal ownership), then colleagues with the most spare hours
+                skilled.sort(key=lambda m: (m.id != w.assignee_id, -avail[m.id], -m.skills.get(stage.skill, 0.0)))
                 for m in skilled:
                     if w.remaining_hours <= 0.01:
                         break
@@ -987,13 +1068,20 @@ class World:
                 if m.workload > cfg.overload_threshold:
                     m.memory.append(MemoryTrace(self.month, "overload", -0.15, 0.6))
                     m.trust_management = clamp(m.trust_management - 0.01 * (1.0 - mgr_avail))
+                    if not getattr(m, "_overloaded_last", False):
+                        self.emit("employee_overloaded", m.id, "overloaded", [m.id, t.id], {"workload": round(getattr(m, "_prev_workload", 1.0), 2)},
+                                  {"workload": round(m.workload, 2), "assigned_hours": round(m.assigned_hours), "capacity_hours": round(m.capacity_hours)},
+                                  self.recent_team_causes(t.id, months=3, limit=3), f"{m.name} overloaded ({int(m.workload*100)}% of capacity)")
+                    m._overloaded_last = True
                 else:
+                    m._overloaded_last = False
                     m.trust_management = clamp(m.trust_management + 0.005)
+                m._prev_workload = m.workload
                 ti_target = clamp(0.03 + 0.5 * max(0.0, m.stress - 0.5) + 0.45 * max(0.0, 0.5 - m.morale)
                                   + 0.1 * (1.0 - m.commitment) + 0.1 * cfg.job_market - 0.1 * m.institutional_knowledge
                                   - 0.05 * (m.trust_management - 0.5))
                 m.turnover_intention = clamp(m.turnover_intention + 0.3 * (ti_target - m.turnover_intention))
-                m.absence_probability = clamp(0.02 + 0.03 * self.rng.random() * 0 + 0.02 + 0.08 * max(0.0, m.stress - 0.6), 0.01, 0.3)
+                m.absence_probability = clamp(0.04 + 0.08 * max(0.0, m.stress - 0.6), 0.01, 0.3)
                 # influence grows with help given
                 m.influence = clamp(m.influence + 0.01 * m.help_given - 0.002)
                 m.help_given = 0
@@ -1196,7 +1284,10 @@ class World:
                 self.threshold_state[key] = band
                 team = self.teams[tid]
                 if band in ("high", "critical") and (prev == "normal" or band == "critical"):
-                    self.emit("backlog_threshold", tid, f"backlog_{band}", [tid], {"band": prev}, {"band": band, "backlog_months": tm["backlog_months"]},
+                    prev_m = self.metrics_history[-4]["teams"].get(tid, {}) if len(self.metrics_history) >= 4 else {}
+                    self.emit("backlog_threshold", tid, f"backlog_{band}", [tid],
+                              {"band": prev, "backlog_months": prev_m.get("backlog_months"), "capacity_hours": prev_m.get("capacity_hours"), "headcount": prev_m.get("headcount")},
+                              {"band": band, "backlog_months": tm["backlog_months"], "capacity_hours": tm["capacity_hours"], "headcount": tm["headcount"]},
                               self.recent_team_causes(tid, months=4, limit=5),
                               f"{team.name} backlog {band}: {tm['backlog_months']:.1f} months of work waiting", significant=True)
                 elif band == "normal":
@@ -1207,8 +1298,10 @@ class World:
             if mband != self.threshold_state.get(key, "normal"):
                 self.threshold_state[key] = mband
                 if mband == "overloaded":
-                    self.emit("management_overload", tid, "management_overload", [tid], {}, {"management_load": tm["management_load"]},
-                              self.recent_team_causes(tid, months=3, limit=4), f"Management capacity in {self.teams[tid].name} overloaded", significant=True)
+                    prev_m = self.metrics_history[-3]["teams"].get(tid, {}) if len(self.metrics_history) >= 3 else {}
+                    self.emit("management_overload", tid, "management_overload", [tid], {"management_load": prev_m.get("management_load"), "approvals_waiting": prev_m.get("approvals_waiting")},
+                              {"management_load": tm["management_load"], "approvals_waiting": tm["approvals_waiting"]},
+                              self.recent_team_causes(tid, months=3, limit=4, kinds=STATE_CHANGING_KINDS | {"escalation"}), f"Management capacity in {self.teams[tid].name} overloaded", significant=True)
         key = "org:turnover"
         band = "high" if m["turnover_12m"] > max(4, 0.12 * m["headcount"]) else "normal"
         if band != self.threshold_state.get(key, "normal"):
@@ -1243,7 +1336,7 @@ class World:
                 "departments": [{"id": d.id, "name": d.name, "x": round(self.layout["departments"][d.id][0], 2),
                                  "z": round(self.layout["departments"][d.id][1], 2), "r": round(self.layout["departments"][d.id][2], 2),
                                  "hiring_frozen": d.hiring_frozen} for d in self.departments.values()],
-                "new_events": [to_dict(ev) for ev in self.events if ev.month == self.month and ev.significant][-30:]}
+                "new_events": [to_dict(ev) for ev in self.events if ev.month == self.month and ev.significant]}
 
     # ------------------------------------------------------------- fork / save
     def fork(self, label: str, decision_engine: Optional[AgentDecisionEngine] = None, record_frames: Optional[bool] = None) -> "World":
@@ -1252,17 +1345,26 @@ class World:
         self.decision_engine = None  # type: ignore
         heur = self._heuristic
         self._heuristic = None  # type: ignore
+        by_action = self.agreement["by_action"]
+        self.agreement["by_action"] = {k: dict(v) for k, v in by_action.items()}
         try:
             w = copy.deepcopy(self)
         finally:
             self.decision_engine = engine
             self._heuristic = heur
+            self.agreement["by_action"] = defaultdict(lambda: {"model": 0, "rules": 0}, {k: dict(v) for k, v in by_action.items()})
+        w.agreement["by_action"] = defaultdict(lambda: {"model": 0, "rules": 0}, {k: dict(v) for k, v in w.agreement["by_action"].items()})
         w.decision_engine = decision_engine or engine
         w._heuristic = heur
         w.label = label
         if record_frames is not None:
             w.record_frames = record_frames
         return w
+
+    def agreement_report(self) -> dict[str, Any]:
+        a = self.agreement
+        return {"n": a["n"], "agreement_rate": round(a["agree"] / a["n"], 3) if a["n"] else None,
+                "by_action": {k: dict(v) for k, v in sorted(a["by_action"].items(), key=lambda kv: -(kv[1]["model"] + kv[1]["rules"]))}}
 
     def structure(self) -> dict[str, Any]:
         """Static-ish description for the client: teams, departments, employees, process graph, layout."""

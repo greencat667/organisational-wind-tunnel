@@ -30,6 +30,10 @@ export function DebugPanel() {
       <span>agents <b>{JSON.stringify(d.active_agents)}</b></span>
       <span>work items <b>{JSON.stringify(d.active_work_items)}</b></span>
       <span>triggers <b>{t.triggers ? Object.entries(t.triggers).map(([k, v]) => `${k}:${v}`).join(' ') : '—'}</b></span>
+      {d.agreement && Object.values(d.agreement).some((a: any) => a?.n) && (
+        <span style={{ gridColumn: '1 / -1' }}>model vs rules agreement <b>{Object.entries(d.agreement).map(([w, a]: any) => `${w}: ${a.agreement_rate != null ? Math.round(a.agreement_rate * 100) + '%' : '—'} (n=${a.n})`).join(' · ')}</b>
+          {' '}· where they differ: {Object.entries((Object.values(d.agreement) as any[]).find((a: any) => a?.n)?.by_action || {}).slice(0, 5).map(([k, v]: any) => `${k} model ${v.model}/rules ${v.rules}`).join(', ')}</span>
+      )}
     </div>
   )
 }

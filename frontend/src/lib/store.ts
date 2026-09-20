@@ -24,7 +24,7 @@ interface State {
   showNetwork: boolean
   panel: 'events' | 'effects' | 'batch' | 'inspector' | 'network' | 'saved'
   batchJob: any | null
-  interpret: { text: string; plan: any; interpreted: string[]; source: string; latency_ms: number; error: string | null } | null
+  interpret: { text: string; plan: any; interpreted: string[]; source: string; latency_ms: number; error: string | null; pending?: boolean; edited?: boolean } | null
   interpreting: boolean
   init: () => Promise<void>
   applyFrame: (msg: any) => void
