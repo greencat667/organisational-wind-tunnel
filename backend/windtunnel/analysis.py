@@ -66,21 +66,30 @@ def why(events: list[Event], event_id: int, max_depth: int = 8, max_nodes: int =
     chain = []
     cur = by_id[event_id]
     seen = set()
-    while cur and cur.id not in seen and len(chain) < max_depth * 2:
+    while cur and cur.id not in seen and len(chain) < max_depth * 4:
         seen.add(cur.id)
         chain.append({"id": cur.id, "month": cur.month, "kind": cur.kind, "description": cur.description, "emergent": cur.emergent})
         cands = [by_id[c] for c in cur.causes if c in by_id]
+        # an action event's decision is folded into it: jump to what caused the decision (the state the person saw)
+        if cur.kind != "decision":
+            decisions = [c for c in cands if c.kind == "decision"]
+            for d in decisions:
+                seen.add(d.id)
+                cands += [by_id[c] for c in d.causes if c in by_id and c not in seen]
+            cands = [c for c in cands if c.kind != "decision"] or decisions
         if not cands:
             break
-        cands.sort(key=lambda e: (orders.get(e.id, 10**6), not e.significant, -e.month))
+        cands.sort(key=lambda e: (orders.get(e.id, 10**6), e.kind == "decision", not e.significant, -e.month))
         cur = cands[0]
-    # compress runs of routine decisions so the chain reads as a story
+    # keep the story readable: drop consecutive same-kind routine events (e.g. repeated redistributions), keep ends
     compact = []
     for c in chain:
-        if compact and c["kind"] == "decision" and compact[-1]["kind"] == "decision" and len(chain) > max_depth:
+        if compact and c["kind"] == compact[-1]["kind"] and c["kind"] in ("decision", "work_redistributed", "workaround", "escalation", "employee_overloaded", "work_transferred"):
             continue
         compact.append(c)
-    chain = compact[:max_depth]
+    if len(compact) > max_depth:
+        compact = compact[: max_depth - 3] + compact[-3:]
+    chain = compact
     chain.reverse()
     return {"nodes": list(nodes.values()), "edges": edges, "chain": chain}
 
@@ -239,10 +248,12 @@ _METRIC_EVENT_KINDS = {
 
 
 def _latest_event_for(world, team: Optional[str], metric: str) -> Optional[Event]:
+    """The event to explain a metric divergence with: kinds are tried in priority order (threshold crossings first),
+    latest occurrence of the first kind that exists."""
     kinds = _METRIC_EVENT_KINDS.get(metric, ["backlog_threshold", "employee_left", "work_transferred"])
-    for ev in reversed(world.events):
-        if ev.kind in kinds and (team is None or team in ev.entities):
-            if ev.id != world.intervention_root:
+    for kind in kinds:
+        for ev in reversed(world.events):
+            if ev.kind == kind and (team is None or team in ev.entities) and ev.id != world.intervention_root:
                 return ev
     for ev in reversed(world.events):
         if ev.significant and (team is None or team in ev.entities):
