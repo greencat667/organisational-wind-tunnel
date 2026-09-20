@@ -9,3 +9,4 @@ data/*.sqlite-journal
 working/screenshots/
 .DS_Store
 *.log
+data/
