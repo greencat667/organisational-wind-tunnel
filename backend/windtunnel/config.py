@@ -38,6 +38,15 @@ class SimConfig:
     confidence_probabilistic: float = 0.5
     # automation
     automation_implementation_hours_per_level: float = 400.0   # team hours needed per 100% automation level
+    # AI agents
+    ai_incident_probability: float = 0.03      # monthly P(outage/regression) per team with live agents
+    ai_learning_months: float = 9.0            # exception rate decays towards 45% of base with this time constant
+    ai_drift_factor: float = 0.8               # exception rate rises by this × (1 - supervision coverage)
+    ai_deploy_hours_per_agent: float = 60.0    # implementation work per agent-equivalent (target team)
+    ai_tech_hours_per_agent: float = 25.0      # implementation work landing on the technology team
+    skill_atrophy_per_month: float = 0.012     # proficiency lost per month when AI does >=70% of a skill's routine work
+    skill_atrophy_floor: float = 0.4
+    verify_share: float = 0.10                 # share of capacity spent by an employee who chooses to verify AI output
     # information
     info_share_base: float = 0.35
     # external

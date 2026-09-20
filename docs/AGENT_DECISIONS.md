@@ -30,7 +30,8 @@ No names of other people, no full org.
 Employees: continue_as_normal, seek_help(team), work_overtime, delay_low_priority, escalate_workload, use_workaround,
 reduce_quality, share_information, apply_for_internal_job(team), leave.
 Managers: redistribute_work, request_recruitment, approve_overtime, protect_team, cancel_low_priority, escalate_up,
-reprioritise, automate_task, share_information.
+reprioritise, automate_task, share_information, pause_ai_agents, expand_ai_agents, retrain_staff.
+Employees with AI agents in their team also get verify_ai_output.
 Availability is decided deterministically by the World (no helpers with spare capacity → no seek_help; no vacancy
 budget → no recruitment; turnover intention < 0.2 → no leave). Effects live in `primitives.apply_action`.
 

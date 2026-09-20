@@ -74,7 +74,7 @@ function EmployeeInspector() {
   return (
     <div className="panel" style={{ flex: 1 }}>
       <h3>{e.name} <span className={`tag ${sel.world === 'baseline' ? 'blue' : ''}`}>{sel.world}</span></h3>
-      <div style={{ fontSize: 13 }}>{e.role_title} · {d.team.name}{e.is_manager ? ' · manager' : ''}</div>
+      <div style={{ fontSize: 13 }}>{e.role_title} · {d.team.name}{e.is_manager ? ' · manager' : e.role_kind === 'supervisor' ? ' · supervises AI agents' : ''}</div>
       <div className="muted">{e.archetype} · {e.experience_months} months tenure · grade {e.grade} · {e.status}{e.onboarding_months_left ? ` · onboarding ${e.onboarding_months_left} mo` : ''}</div>
       <div style={{ marginTop: 8 }}>
         {[['Workload', e.workload, 1.5], ['Stress', e.stress, 1], ['Morale', e.morale, 1], ['Trust in management', e.trust_management, 1], ['Turnover intention', e.turnover_intention, 1], ['Team backlog (months)', d.team.backlog_months, 3]].map(([k, v, max]: any) => (
@@ -133,6 +133,18 @@ function TeamInspector() {
       <div className="row"><span>Transfers in / out</span><span>{t.transfers_in} / {t.transfers_out}</span></div>
       <div className="row"><span>Errors · approvals waiting</span><span>{t.errors_this_month} · {t.approvals_waiting}</span></div>
       <div className="row"><span>Turnover 12m · automation</span><span>{t.turnover_12m} · {Math.round(t.automation_level * 100)}%</span></div>
+      {t.ai_agents > 0 && (
+        <>
+          <h4>AI agents <span className="tag">{t.ai_incident ? 'incident' : 'live'}</span></h4>
+          <div className="row"><span>Agent-equivalents · capacity</span><span>{t.ai_agents} · {Math.round(t.ai_capacity_hours)} h/mo</span></div>
+          <div className="row"><span>Supervision coverage</span><span>{Math.round(t.ai_supervision_coverage * 100)}%</span></div>
+          <div className="bar"><div style={{ width: `${Math.min(100, t.ai_supervision_coverage * 100)}%`, background: t.ai_supervision_coverage < 0.8 ? 'var(--danger)' : 'var(--accent)' }} /></div>
+          <div className="row"><span>Exception rate · this month</span><span>{Math.round(t.ai_exception_rate * 100)}% · {t.ai_exceptions_this_month}/{t.ai_items_this_month + t.ai_exceptions_this_month}</span></div>
+          <div className="row"><span>Hidden defects surfaced here</span><span>{t.downstream_ai_errors_this_month}</span></div>
+          <div className="row"><span>Incidents · leavers replaced</span><span>{t.ai_incidents_total} · {t.replace_leavers ? 'yes' : 'no'}</span></div>
+          <div className="row"><span>Supervisors</span><span>{d.members.filter((m: any) => m.role_kind === 'supervisor').length}</span></div>
+        </>
+      )}
       <h4>Queue by kind</h4>
       {Object.entries(d.queue_by_kind).slice(0, 6).map(([k, v]: any) => <div className="row" key={k}><span>{k}</span><span>{v}</span></div>)}
       <h4>Backlog history</h4>

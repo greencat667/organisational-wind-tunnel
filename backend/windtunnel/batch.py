@@ -108,8 +108,17 @@ def summarise(results: list[dict[str, Any]], template: str = "") -> dict[str, An
         "stress_up": freq(lambda r: r["int"]["stress"] > r["base"]["stress"] + 0.05),
         "stable": freq(lambda r: r["int"]["max_team_backlog"] < 1.0 and r["int"]["delivery"] >= 0.9 * r["base"]["delivery"] and r["int"]["turnover_12m"] <= r["base"]["turnover_12m"] + 2),
     }
+    if any(r["int"].get("ai_capacity_share", 0) > 0 for r in results):
+        outcomes.update({
+            "ai_exception_load_gt25pct": freq(lambda r: r["int"].get("ai_exception_share", 0) > 0.25),
+            "hidden_ai_defects_gt3_per_month": freq(lambda r: r["int"].get("downstream_ai_errors", 0) > 3),
+            "deskilling": freq(lambda r: r["int"].get("deskilling_index", 0) > 0.06),
+            "approval_bottleneck": freq(lambda r: r["int"].get("approvals_waiting", 0) > 3 * max(1.0, r["base"].get("approvals_waiting", 0)) and r["int"].get("approvals_waiting", 0) >= 10),
+            "automation_recovery": freq(lambda r: r["int"]["cost_ytd"] < 0.97 * r["base"]["cost_ytd"] and r["int"]["max_team_backlog"] < 1.0 and r["int"]["delivery"] >= 0.95 * r["base"]["delivery"]),
+        })
     # clusters
-    keys = ["backlog_months", "delivery", "turnover_12m", "stress", "management_load", "cooperation", "max_team_backlog"]
+    keys = ["backlog_months", "delivery", "turnover_12m", "stress", "management_load", "cooperation", "max_team_backlog",
+            "ai_exception_share", "downstream_ai_errors", "deskilling_index"]
     vectors = [[r["int"][k] - r["base"][k] for k in keys] for r in results]
     k = 2 if n < 12 else 3 if n < 60 else 4
     labels = analysis.kmeans(vectors, k) if n >= 4 else [0] * n
@@ -123,6 +132,25 @@ def summarise(results: list[dict[str, Any]], template: str = "") -> dict[str, An
         clusters.append({"id": c, "size": len(members), "share": round(len(members) / n, 3), "name": analysis.name_cluster(centre, base_centre),
                          "centre": {kk: round(v, 3) for kk, v in centre.items()}, "seeds": [r["seed"] for r in members][:20]})
     clusters.sort(key=lambda c: -c["size"])
+    # a tag shared by every cluster says nothing about differences between them: drop it from the names
+    if len(clusters) > 1:
+        tag_sets = [set(x.strip() for x in c["name"].replace(" spiral", "").split(" / ")) for c in clusters]
+        common = set.intersection(*tag_sets)
+        for c, ts in zip(clusters, tag_sets):
+            rest = [t for t in c["name"].replace(" spiral", "").split(" / ") if t.strip() not in common]
+            c["shared_traits"] = sorted(common - {"Stable adaptation"})
+            c["name"] = " / ".join(rest) if rest else ("Stable adaptation" if c["centre"]["max_team_backlog"] < 1.0 else "Mixed")
+        # clusters that still share a name are told apart by the metric on which their centre deviates most from the overall mean
+        names = [c["name"] for c in clusters]
+        if len(set(names)) < len(names):
+            all_keys = [k for k in results[0]["int"] if k != "headcount"]
+            mean = {k: sum(r["int"][k] for r in results) / n for k in all_keys}
+            sd = {k: (analysis._sd([r["int"][k] for r in results]) or 1e-9) for k in all_keys}
+            for c in clusters:
+                if names.count(c["name"]) > 1:
+                    devs = {k: (c["centre"][k] - mean[k]) / sd[k] for k in all_keys if k in c["centre"]}
+                    k = max(devs, key=lambda x: abs(devs[x]))
+                    c["name"] += f" · {'higher' if devs[k] > 0 else 'lower'} {k.replace('_', ' ')}"
     # surprises: distant variables that moved in a large share of runs
     tally: dict[tuple, dict] = {}
     for r in results:

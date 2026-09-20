@@ -16,6 +16,12 @@ const METRICS: [string, string, (m: Metrics) => number, (v: number) => string, b
   ['Cooperation', 'cooperation', (m) => m.cooperation, (v) => `${v}`, false],
   ['Info reach', 'information_reach', (m) => m.information_reach, (v) => `${Math.round(v * 100)}%`, false],
 ]
+const AI_METRICS: [string, string, (m: Metrics) => number, (v: number) => string, boolean][] = [
+  ['AI agents', 'ai_agents', (m) => m.ai_agents || 0, (v) => `${v}`, false],
+  ['AI exceptions', 'ai_exceptions', (m) => m.ai_exceptions || 0, (v) => `${v}/mo`, true],
+  ['AI defects downstream', 'downstream_ai_errors', (m) => m.downstream_ai_errors || 0, (v) => `${v}/mo`, true],
+  ['Deskilling', 'deskilling_index', (m) => m.deskilling_index || 0, (v) => v.toFixed(3), true],
+]
 
 export function Bottom() {
   const status = useStore((s) => s.status)
@@ -60,7 +66,7 @@ export function Bottom() {
         {[1, 6, 12, 10000].map((v) => <button key={v} className={`btn sm ${status?.speed === v ? 'active' : 'ghost'}`} onClick={() => play({ speed: v })}>{v === 10000 ? 'max' : v === 12 ? '1y/s' : `${v}m/s`}</button>)}
       </div>
       <div className="metrics">
-        {METRICS.map(([label, key, fn, fmt, lowerBetter]) => {
+        {[...METRICS, ...((i && (i.ai_agents || 0) > 0) || (b && (b.ai_agents || 0) > 0) ? AI_METRICS : [])].map(([label, key, fn, fmt, lowerBetter]) => {
           const bv = b ? fn(b) : null, iv = i ? fn(i) : null
           const series = (metrics.baseline.slice(-36)).map(fn)
           const iseries = status?.forked ? metrics.intervention.slice(-36).map(fn) : []

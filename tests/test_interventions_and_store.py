@@ -13,7 +13,12 @@ def test_rule_parser_scenarios():
     p = rule_parse("Organisation income falls 15% next year."); assert p.changes[0].operation == "shock" and p.changes[0].kind == "funding_cut"
     p = rule_parse("Demand for services doubles over two years."); assert p.changes[0].operation == "change_demand" and p.changes[0].amount == 1.0 and p.transition_period_months == 24
     p = rule_parse("Merge the fundraising and communications teams."); assert p.changes[0].operation == "merge_teams" and len(p.changes[0].teams) == 2
-    p = rule_parse("Deploy AI agents for 60% of back-office work with staff supervising agent teams."); assert p.changes[0].operation == "convert_to_supervisory"
+    p = rule_parse("Deploy AI agents for 60% of back-office work with staff supervising agent teams.")
+    assert [c.operation for c in p.changes] == ["deploy_ai_agents", "convert_to_supervisory"] and p.changes[0].replace_leavers is True
+    p = rule_parse("Automate the back office: deploy AI agents to take 70% of routine finance, HR and administrative work over 6 months, and do not replace leavers in those teams.")
+    assert p.changes[0].operation == "deploy_ai_agents" and p.changes[0].replace_leavers is False and abs(p.changes[0].amount - 0.7) < 1e-6 and p.transition_period_months == 6
+    p = rule_parse("Let AI run the procurement, invoicing and expenses workflows end to end for 80% of cases, including approvals, with humans handling exceptions only.")
+    assert p.changes[0].operation == "ai_run_process" and p.changes[0].delegate_approvals is True and set(p.changes[0].processes) == {"procurement", "invoice", "payroll"}
 
 
 def test_flat_afm_output_validates():

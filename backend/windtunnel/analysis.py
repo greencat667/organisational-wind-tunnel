@@ -9,10 +9,12 @@ from .model import Event, to_dict
 
 # team-level metrics we compare between worlds
 TEAM_METRICS = ["backlog_months", "queue", "workload", "headcount", "vacancies", "management_load", "morale", "stress",
-                "turnover_12m", "errors", "transfers_in", "approvals_waiting", "completed", "dropped"]
+                "turnover_12m", "errors", "transfers_in", "approvals_waiting", "completed", "dropped",
+                "ai_exceptions", "downstream_ai_errors", "supervisors"]
 ORG_METRICS = ["backlog_months", "queue_items", "delivery", "cycle_time", "overdue", "workload", "stress", "morale",
                "turnover_12m", "cost_ytd", "management_load", "approvals_waiting", "cooperation", "information_reach",
-               "informal_ties", "errors", "headcount", "vacancies", "dropped"]
+               "informal_ties", "errors", "headcount", "vacancies", "dropped", "ai_capacity_share", "downstream_ai_errors",
+               "deskilling_index", "supervisors"]
 
 
 # ----------------------------------------------------------------------------- causal graph
@@ -135,8 +137,9 @@ def divergence(base_hist: list[dict], int_hist: list[dict], intervention_month: 
 
 
 _COUNT_METRICS = {"turnover_12m", "vacancies", "headcount", "queue", "queue_items", "transfers_in", "approvals_waiting", "errors",
-                  "completed", "dropped", "overdue", "cooperation", "informal_ties"}
-_RATIO_METRICS = {"backlog_months", "delivery", "workload", "stress", "morale", "management_load", "information_reach", "cycle_time"}
+                  "completed", "dropped", "overdue", "cooperation", "informal_ties", "ai_exceptions", "downstream_ai_errors", "supervisors"}
+_RATIO_METRICS = {"backlog_months", "delivery", "workload", "stress", "morale", "management_load", "information_reach", "cycle_time",
+                  "ai_capacity_share", "deskilling_index"}
 
 
 def _mean(xs):
@@ -225,7 +228,11 @@ _METRIC_EVENT_KINDS = {
     "transfers_in": ["work_transferred", "work_redistributed"],
     "approvals_waiting": ["management_overload", "workaround"],
     "dropped": ["work_dropped"],
-    "cost_ytd": ["hiring_freeze", "capacity_reduced", "employee_hired"],
+    "cost_ytd": ["hiring_freeze", "capacity_reduced", "employee_hired", "post_not_replaced", "ai_agents_live"],
+    "downstream_ai_errors": ["ai_quality_leak", "ai_correction", "ai_incident"],
+    "ai_exceptions": ["ai_incident", "supervision_gap", "ai_agents_live"],
+    "supervisors": ["roles_converted", "staff_retrained"],
+    "deskilling_index": ["ai_agents_live", "roles_converted"],
     "workload": ["backlog_threshold", "capacity_reduced", "work_transferred"],
 }
 
@@ -266,6 +273,26 @@ def detect_emergence(world_int, world_base) -> list[dict[str, Any]]:
         if tm["turnover_12m"] >= 3 and tm["turnover_12m"] >= tb["turnover_12m"] + 2:
             out.append({"kind": "turnover_cluster", "team": tid, "label": f"Turnover cluster: {name}", "emergent": emergent,
                         "value": tm["turnover_12m"], "baseline": tb["turnover_12m"], "event_id": _eid(world_int, tid, "employee_left")})
+    # AI-specific systemic phenomena
+    for tid, tm in hi["teams"].items():
+        tb = hb["teams"].get(tid, tm)
+        name = world_int.teams[tid].name if tid in world_int.teams else tid
+        emergent = tid not in targets
+        if tm.get("ai_items", 0) + tm.get("ai_exceptions", 0) >= 5 and tm.get("ai_exceptions", 0) / max(1, tm.get("ai_items", 0) + tm.get("ai_exceptions", 0)) > 0.25:
+            out.append({"kind": "ai_exception_load", "team": tid, "label": f"AI exception load on staff: {name}", "emergent": emergent,
+                        "value": tm["ai_exceptions"], "baseline": 0, "event_id": _eid(world_int, tid, "ai_incident") or _eid(world_int, tid, "ai_agents_live")})
+        if tm.get("downstream_ai_errors", 0) >= 3 and tm.get("ai_agents", 0) == 0:
+            out.append({"kind": "quality_leakage", "team": tid, "label": f"AI defects surfacing in {name} (no agents there)", "emergent": True,
+                        "value": tm["downstream_ai_errors"], "baseline": 0, "event_id": _eid(world_int, tid, "ai_quality_leak")})
+        if tm.get("approvals_waiting", 0) >= 10 and tm["approvals_waiting"] > 3 * max(1, tb.get("approvals_waiting", 0)) and hi.get("ai_agents", 0) > 0:
+            out.append({"kind": "approval_bottleneck", "team": tid, "label": f"Human approvals became the constraint: {name}", "emergent": emergent,
+                        "value": tm["approvals_waiting"], "baseline": tb.get("approvals_waiting", 0), "event_id": _eid(world_int, tid, "management_overload")})
+        if tm.get("ai_supervision_coverage", 1.0) < 0.75 and tm.get("ai_agents", 0) > 0:
+            out.append({"kind": "supervision_gap", "team": tid, "label": f"AI agents under-supervised in {name}", "emergent": emergent,
+                        "value": tm["ai_supervision_coverage"], "baseline": 1.0, "event_id": _eid(world_int, tid, "ai_agents_live")})
+    if hi.get("deskilling_index", 0) >= 0.06:
+        out.append({"kind": "deskilling", "team": None, "label": "Deskilling: staff losing proficiency in work AI now does", "emergent": True,
+                    "value": hi["deskilling_index"], "baseline": hb.get("deskilling_index", 0), "event_id": None})
     # process workarounds
     wk_i = sum(1 for e in world_int.events if e.kind == "workaround" and e.month > (world_int.intervention_month or 0))
     wk_b = sum(1 for e in world_base.events if e.kind == "workaround" and e.month > (world_int.intervention_month or 0))
@@ -361,6 +388,12 @@ def final_vector(history: list[dict]) -> dict[str, float]:
         "max_team_backlog": max(t["backlog_months"] for t in h["teams"].values()),
         "errors": _mean([x["errors"] for x in tail]),
         "headcount": h["headcount"],
+        "ai_capacity_share": _mean([x.get("ai_capacity_share", 0.0) for x in tail]),
+        "ai_exception_share": _mean([x.get("ai_exceptions", 0) / max(1, x.get("ai_items", 0) + x.get("ai_exceptions", 0)) for x in tail]),
+        "downstream_ai_errors": _mean([x.get("downstream_ai_errors", 0) for x in tail]),
+        "deskilling_index": h.get("deskilling_index", 0.0),
+        "approvals_waiting": _mean([x.get("approvals_waiting", 0) for x in tail]),
+        "supervisors": h.get("supervisors", 0),
     }
 
 
@@ -377,8 +410,14 @@ def name_cluster(centre: dict[str, float], base_centre: dict[str, float]) -> str
         tags.append("Delivery-degradation")
     if centre["cooperation"] > base_centre["cooperation"] * 1.5 + 2:
         tags.append("Workload-transfer")
+    if centre.get("ai_exception_share", 0) > 0.25:
+        tags.append("AI-exception load")
+    if centre.get("downstream_ai_errors", 0) > 3:
+        tags.append("Quality-leakage")
+    if centre.get("deskilling_index", 0) > 0.06:
+        tags.append("Deskilling")
     if centre["cost_ytd"] < base_centre["cost_ytd"] * 0.95 and not tags:
-        tags.append("Cost-saving")
+        tags.append("Automation recovery" if centre.get("ai_capacity_share", 0) > 0.05 else "Cost-saving")
     if not tags:
         return "Stable adaptation"
     return " / ".join(tags[:2]) + (" spiral" if "High-turnover" in tags and "Bottleneck" in tags else "")

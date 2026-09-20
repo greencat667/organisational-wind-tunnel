@@ -81,6 +81,16 @@ def build_request(world: "World", emp, triggers: list[str], available: list[str]
         "job_market": cfg.job_market,
         "holds_unshared_information": 1.0 if world.unshared_info(emp) else 0.0,
     }
+    ctx["my_role"] = emp.role_kind
+    if team.ai_agents > 0:
+        ctx.update({
+            "ai_agents_in_team": round(team.ai_agents, 1),
+            "ai_share_of_capacity": round(team.ai_capacity_hours / max(1.0, team.capacity_hours + team.ai_capacity_hours), 2),
+            "ai_exception_rate": round(team.ai_exception_rate, 2),
+            "ai_supervision_coverage": round(team.ai_supervision_coverage, 2),
+            "ai_incident_this_month": 1.0 if team.ai_incident else 0.0,
+            "posts_replaced_when_people_leave": "no" if not team.replace_leavers else "yes",
+        })
     if kind == "manager":
         members = [world.employees[m] for m in team.member_ids if world.employees[m].status == "active"]
         wl = [m.workload for m in members]

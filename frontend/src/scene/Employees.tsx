@@ -34,6 +34,7 @@ export function Employees({ frame, prev, world, offset, teamDept, xray, t01 }:
     const time = clock.getElapsedTime()
     frame.employees.forEach((e, i) => {
       const [id, team, x, z, workload, stress, morale, status, isMgr, behaviour] = e
+      const roleKind = e[12]
       const p = prevPos.get(id)
       const px = p ? p[2] : x, pz = p ? p[3] : z
       const cx = px + (x - px) * ease(t01), cz = pz + (z - pz) * ease(t01)
@@ -41,8 +42,8 @@ export function Employees({ frame, prev, world, offset, teamDept, xray, t01 }:
       const pulse = 1 + 0.06 * Math.sin(time * (1.2 + 2.4 * Math.max(0, workload - 0.8)) + s * 6.28)
       const jitter = Math.max(0, stress - 0.55) * 0.12
       const jx = jitter * Math.sin(time * 13 + s * 10), jz = jitter * Math.cos(time * 11 + s * 7)
-      let y = 0.45 + (isMgr ? 0.25 : 0)
-      let scale = (isMgr ? 1.25 : 1) * pulse
+      let y = 0.45 + (isMgr ? 0.25 : roleKind === 'supervisor' ? 0.12 : 0)
+      let scale = (isMgr ? 1.25 : roleKind === 'supervisor' ? 1.1 : 1) * pulse
       let alpha = 1
       if (status === 'left') { y += 2.5 * t01; scale *= Math.max(0.05, 1 - t01); alpha = 1 - t01 }
       if (status === 'leaving') { y += 0.4 }
@@ -56,7 +57,7 @@ export function Employees({ frame, prev, world, offset, teamDept, xray, t01 }:
       col.copy(deptColor(teamDept[team] || ''))
       if (xray === 'capacity') { col.setHSL(0.6 - 0.6 * clamp01((workload - 0.5) / 1.0), 0.8, 0.55) }
       else if (xray === 'change') { col.set(behaviour === 'working' ? '#4d5a70' : '#ffb566') }
-      else { col.lerp(STRESS, clamp01((stress - 0.45) * 1.4)) }
+      else { col.lerp(STRESS, clamp01((stress - 0.45) * 1.4)); if (roleKind === 'supervisor') col.lerp(new THREE.Color('#6fd3ff'), 0.55) }
       const bright = 0.55 + 0.45 * morale
       col.multiplyScalar(bright * alpha)
       if (selection && selection.kind === 'employee' && selection.id === id && selection.world === world) col.set('#ffffff')

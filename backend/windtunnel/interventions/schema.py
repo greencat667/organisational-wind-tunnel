@@ -24,6 +24,9 @@ class Change(BaseModel):
     team: Optional[str] = None               # change_reporting / add_approval
     reports_to_team: Optional[str] = None
     kind: Optional[str] = None               # shock kind
+    replace_leavers: Optional[bool] = None   # deploy_ai_agents: False = attrition-based downsizing
+    delegate_approvals: Optional[bool] = None  # ai_run_process
+    lag_months: Optional[int] = None         # AI ops: implementation lag
 
     @field_validator("amount")
     @classmethod
@@ -65,7 +68,7 @@ AFM_SCHEMA = {
         "operation_1": {"type": "string", "enum": _OPS},
         "target_1": {"type": "string", "description": _TARGET_DESC},
         "amount_percent_1": {"type": "integer", "description": "size of the change in percent (20 for 20%); negative for cuts of budget, hours or demand; 0 if not applicable"},
-        "detail_1": {"type": "string", "description": "for merge_teams: the two team names separated by ' and '; for shock: funding_cut, demand_spike, staff_shortage or supplier_failure; else empty"},
+        "detail_1": {"type": "string", "description": "for merge_teams: the two team names separated by ' and '; for shock: funding_cut, demand_spike, staff_shortage or supplier_failure; for AI operations: 'no replacement' if leavers are not replaced, 'delegate approvals' if AI may approve, 'processes: name, name' to name workflows; else empty"},
         "operation_2": {"type": "string", "enum": _OPS + ["none"], "description": "a second change if the request contains one, else none"},
         "target_2": {"type": "string", "description": _TARGET_DESC + ", or empty"},
         "amount_percent_2": {"type": "integer"},
@@ -93,6 +96,15 @@ def unflatten(raw: dict) -> dict:
             ch["teams"] = [t.strip() for t in re.split(r"\s+and\s+|,|&", detail) if t.strip()][:2]
         if op == "shock" and detail:
             ch["kind"] = detail.lower().replace(" ", "_")
+        if op in ("deploy_ai_agents", "convert_to_supervisory", "ai_run_process") and detail:
+            d = detail.lower()
+            if "no replacement" in d or "not replace" in d or "attrition" in d:
+                ch["replace_leavers"] = False
+            if "delegate" in d or "ai approv" in d:
+                ch["delegate_approvals"] = True
+            m = re.search(r"processes?:\s*([\w ,&-]+)", d)
+            if m:
+                ch["process_names"] = [x.strip() for x in m.group(1).split(",") if x.strip()]
         changes.append(ch)
     pg = raw.get("protected_groups") or []
     if isinstance(pg, str):
@@ -116,8 +128,9 @@ def validate_plan(data: dict) -> ChangePlan:
         if op == "change_demand" and amt is not None and amt > 0 and any(w in str(data.get("summary", "")).lower() for w in ("fall", "reduce", "decrease", "drop")):
             amt = -amt
         changes.append(Change(operation=op, target=c.get("target") or "all", amount=amt, teams=c.get("teams") or None,
-                              kind=c.get("kind") or None, autonomy_gain=c.get("autonomy_gain"), processes=c.get("processes"),
-                              process=c.get("process"), team=c.get("team"), reports_to_team=c.get("reports_to_team"), name=c.get("name")))
+                              kind=c.get("kind") or None, autonomy_gain=c.get("autonomy_gain"), processes=c.get("processes") or c.get("process_names"),
+                              process=c.get("process"), team=c.get("team"), reports_to_team=c.get("reports_to_team"), name=c.get("name"),
+                              replace_leavers=c.get("replace_leavers"), delegate_approvals=c.get("delegate_approvals"), lag_months=c.get("lag_months")))
     return ChangePlan(intervention_type=data.get("intervention_type", "restructure"), summary=data.get("summary", "")[:200],
                       objectives=data.get("objectives", []), changes=changes, protected_groups=data.get("protected_groups", []),
                       transition_period_months=max(1, min(36, int(data.get("transition_period_months") or 1))), source=data.get("source", "rules"))

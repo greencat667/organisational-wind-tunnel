@@ -76,6 +76,14 @@ class HeuristicDecisionEngine(AgentDecisionEngine):
                 logits[a] = -2.5 + 3.0 * pressure + 1.5 * (esc - 0.5)
             elif a == "reprioritise":
                 logits[a] = -1.8 + 2.5 * pressure + 0.8 * float(c.get("frontline_share_waiting", 0.0))
+            elif a == "verify_ai_output":
+                logits[a] = -1.6 + 2.5 * float(c.get("ai_exception_rate", 0.0)) + 3.0 * float(c.get("ai_incident_this_month", 0.0)) + 1.0 * (1.0 - float(c.get("ai_supervision_coverage", 1.0))) - 1.5 * risk - 1.0 * pressure
+            elif a == "pause_ai_agents":
+                logits[a] = -2.5 + 3.5 * float(c.get("ai_incident_this_month", 0.0)) + 4.0 * max(0.0, float(c.get("ai_exception_rate", 0.0)) - 0.25) - 1.0 * risk - 1.0 * pressure
+            elif a == "expand_ai_agents":
+                logits[a] = -2.0 + 3.0 * pressure + 1.0 * (risk - 0.5) - 3.0 * float(c.get("ai_exception_rate", 0.0))
+            elif a == "retrain_staff":
+                logits[a] = -2.0 + 4.0 * (1.0 - float(c.get("ai_supervision_coverage", 1.0))) + 1.0 * float(c.get("ai_exception_rate", 0.0))
             elif a == "automate_task":
                 logits[a] = -1.5 + 2.0 * float(c.get("automation_programme", 0.0)) + 1.0 * pressure + 0.5 * (risk - 0.5)
             else:

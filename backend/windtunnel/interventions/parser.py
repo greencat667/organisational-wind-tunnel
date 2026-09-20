@@ -161,7 +161,7 @@ _PCT = re.compile(r"(-?\d+(?:\.\d+)?)\s*%|(-?\d+(?:\.\d+)?)\s*(?:per\s*cent|perc
 _MONTHS = re.compile(r"(\d+)\s*(?:months?|mths?)|(\d+|one|two|three)\s*years?")
 _WORDNUM = {"one": 1, "two": 2, "three": 3}
 _TARGET_WORDS = [
-    ("admin", ["admin", "administrative", "administration", "back office", "back-office", "business support", "finance", "hr", "people team", "procurement", "overhead"]),
+    ("admin", ["admin", "administrative", "administration", "back office", "back-office", "back end", "back-end", "business support", "finance", "hr", "people team", "procurement", "overhead"]),
     ("frontline", ["frontline", "front-line", "front line", "programme", "program", "delivery", "service"]),
     ("income", ["fundraising", "communications", "comms", "marketing", "income"]),
     ("technology", ["technology", "tech", "it ", "digital"]),
@@ -233,12 +233,26 @@ def rule_parse(text: str) -> ChangePlan:
         itype = "automation"
         share = _pct(t, 0.4)
         tg = [x for x in _targets(text) if x != "management"] or ["admin"]
-        if "supervis" in t:
-            changes.append({"operation": "convert_to_supervisory", "target": tg, "amount": share})
-        elif "workflow" in t or "loop" in t or "end to end" in t or "end-to-end" in t:
-            changes.append({"operation": "ai_run_process", "target": tg, "amount": share})
-        elif "agent" in t:
-            changes.append({"operation": "deploy_ai_agents", "target": tg, "amount": share})
+        no_replace = any(w in t for w in ("not replace", "no replacement", "attrition", "don't replace", "do not replace", "without replacing"))
+        delegate = any(w in t for w in ("delegate approval", "ai approv", "agents approve", "approvals to ai", "including approvals"))
+        procs = [pid for pid, words in (("procurement", ["procurement"]), ("invoice", ["invoic"]), ("payroll", ["expense", "payroll"]),
+                                        ("support", ["support request", "it support"]), ("donor", ["supporter enquir", "enquir"]), ("logistics", ["logistic"]),
+                                        ("data", ["data request"]), ("hr_case", ["people case", "hr case", "recruitment"]), ("reporting", ["reporting"]))
+                 if any(w in t for w in words)]
+        if "workflow" in t or "loop" in t or "end to end" in t or "end-to-end" in t:
+            ch = {"operation": "ai_run_process", "target": tg, "amount": share, "delegate_approvals": delegate}
+            if procs:
+                ch["processes"] = procs
+            changes.append(ch)
+            if "supervis" in t:
+                changes.append({"operation": "convert_to_supervisory", "target": tg, "amount": 0.25})
+        elif "supervis" in t:
+            sup_share = 0.5 if any(w in t for w in ("half", "50%")) else 0.3
+            if "agent" in t or "ai" in t:
+                changes.append({"operation": "deploy_ai_agents", "target": tg, "amount": share, "replace_leavers": not no_replace})
+            changes.append({"operation": "convert_to_supervisory", "target": tg, "amount": sup_share})
+        elif "agent" in t or "back office" in t or "back-office" in t or "back end" in t:
+            changes.append({"operation": "deploy_ai_agents", "target": tg, "amount": share, "replace_leavers": not no_replace})
         else:
             changes.append({"operation": "enable_automation", "target": tg, "amount": share})
         months = months if months > 1 else 12

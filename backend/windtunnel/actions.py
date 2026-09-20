@@ -50,6 +50,9 @@ EMPLOYEE_ACTIONS: dict[str, ActionSpec] = {a.id: a for a in [
     ActionSpec("leave", "employee", "Resign",
                "Should this employee resign from the organisation?",
                "Resign from the organisation and serve notice."),
+    ActionSpec("verify_ai_output", "employee", "Double-check AI output",
+               "Should this employee spend part of the month checking the AI agents' output before it goes out?",
+               "Spend about a tenth of the month checking the AI agents' output before it leaves the team (slower, fewer hidden defects)."),
 ]}
 
 MANAGER_ACTIONS: dict[str, ActionSpec] = {a.id: a for a in [
@@ -81,6 +84,15 @@ MANAGER_ACTIONS: dict[str, ActionSpec] = {a.id: a for a in [
     ActionSpec("share_information", "manager", "Brief the team",
                "Should this manager brief the team about recent organisational changes?",
                "Brief the team about recent organisational changes."),
+    ActionSpec("pause_ai_agents", "manager", "Pause AI agents",
+               "Should this manager pause the team's AI agents for a month after problems with their output?",
+               "Pause the team's AI agents for a month (humans take all work; exceptions stop)."),
+    ActionSpec("expand_ai_agents", "manager", "Expand AI agents",
+               "Should this manager expand the team's AI agent pool by a fifth?",
+               "Add 20% more AI agent capacity to the team (more supervision needed, live in two months)."),
+    ActionSpec("retrain_staff", "manager", "Retrain staff as AI supervisors",
+               "Should this manager retrain two officers as AI supervisors to close the supervision gap?",
+               "Retrain two officers as supervisors of the AI agents (costs their time this month)."),
 ]}
 
 ALL_ACTIONS = {**EMPLOYEE_ACTIONS, **MANAGER_ACTIONS}

@@ -24,6 +24,7 @@ import time
 from collections import defaultdict
 from typing import Any, Optional
 
+from . import ai
 from .actions import EMPLOYEE_ACTIONS, MANAGER_ACTIONS
 from .config import SimConfig
 from .context import build_request
@@ -36,7 +37,8 @@ from .orggen import GRADE_SALARY, generate_organisation, productive_hours
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 # event kinds that describe a systemic state change (candidates for the EMERGENT label when they hit non-target entities)
 SYSTEMIC_KINDS = {"backlog_threshold", "management_overload", "turnover_spike", "team_protected", "work_dropped", "hiring_freeze",
-                  "vacancy_blocked", "manager_changed", "automation_live", "ai_agents_live", "work_cancelled", "internal_move"}
+                  "vacancy_blocked", "manager_changed", "automation_live", "ai_agents_live", "work_cancelled", "internal_move",
+                  "ai_incident", "ai_quality_leak", "post_not_replaced", "ai_paused", "ai_expanded", "supervision_gap"}
 
 
 def clamp(x: float, lo: float = 0.0, hi: float = 1.0) -> float:
@@ -186,6 +188,8 @@ class World:
         dept = self.departments[team.dept_id]
         if team.hiring_frozen or dept.hiring_frozen:
             return False
+        if not team.replace_leavers and team.ai_agents > 0:
+            return False
         active = len(self.active_members(team)) + len(team.vacancies)
         spend_rate = sum(self.employees[m].salary for m in team.member_ids if self.employees[m].status != "left")
         return active < team.baseline_headcount + 1 and spend_rate * 1.05 < team.budget_annual
@@ -204,6 +208,9 @@ class World:
     def _warm_start(self) -> None:
         """Pre-fill queues so month 0 already looks like a working organisation (~0.6 months of work)."""
         self.applied_changes: list[dict[str, Any]] = []
+        for e in self.employees.values():
+            e.skill_at_start = dict(e.skills)
+            e.role_kind = "manager" if e.is_manager else "officer"
         self._recompute_capacity()
         for p in self.processes.values():
             n = int(round(self._arrivals_for(p) * 0.3))
@@ -242,7 +249,7 @@ class World:
         s = time.perf_counter(); n_dec = self._decisions(); timing["decisions"] = time.perf_counter() - s
         s = time.perf_counter(); self._process_work(); timing["work"] = time.perf_counter() - s
         s = time.perf_counter(); self._update_team_aggregates(workload=False); self._psychology(); timing["psychology"] = time.perf_counter() - s
-        s = time.perf_counter(); self._information(); timing["information"] = time.perf_counter() - s
+        s = time.perf_counter(); ai.monthly_learning_and_atrophy(self); self._information(); timing["information"] = time.perf_counter() - s
         s = time.perf_counter(); self._finance(); timing["finance"] = time.perf_counter() - s
         s = time.perf_counter()
         metrics = self._compute_metrics()
@@ -374,6 +381,12 @@ class World:
         # vacancy (if budget allows and not frozen) + rumour
         if self.can_open_vacancy(team):
             self._open_vacancy(team, e.role, e.grade, "turnover", [ev.id])
+        elif not team.replace_leavers and team.ai_agents > 0:
+            team.baseline_headcount = max(1, team.baseline_headcount - 1)
+            team.budget_annual -= e.salary * 1.18 * 0.5   # half the saving is banked, half funds the agents
+            self.emit("post_not_replaced", team.id, "attrition_downsizing", [team.id], {}, {"headcount": len(self.active_members(team))},
+                      [ev.id] + ([ai._latest_ai_event(self, team.id)] if ai._latest_ai_event(self, team.id) is not None else []),
+                      f"{team.name} did not replace {e.name}: work covered by AI agents", significant=True)
         else:
             self.emit("vacancy_blocked", team.id, "vacancy_not_opened", [team.id], {}, {"frozen": team.hiring_frozen},
                       [ev.id], f"{team.name} could not replace {e.name} (budget or hiring freeze)", significant=True)
@@ -420,6 +433,19 @@ class World:
             item.priority = 2
         return v
 
+    def internal_process(self, team_id: str):
+        """A one-stage process for a team's own internal projects (implementation work, automation builds)."""
+        from .model import Process, ProcessStage
+        pid = f"internal_{team_id}"
+        if pid not in self.processes:
+            t = self.teams[team_id]
+            skill = t.skills_provided[0] if t.skills_provided else "admin"
+            self.processes[pid] = Process(id=pid, name=f"{t.name} internal project", kind="internal project", arrival_rate=0.0,
+                                          stages=[ProcessStage(id=f"{pid}_s0", team_id=team_id, skill=skill, hours_mean=40.0, hours_sd=0.0, routine=0.2)],
+                                          origin_team_id=team_id, deadline_months=6)
+            self.demand_multiplier[pid] = 0.0
+        return self.processes[pid]
+
     def _team_with_skill(self, skill: str) -> Optional[Team]:
         best = None
         for t in self.teams.values():
@@ -443,6 +469,11 @@ class World:
                      skills=skills, experience_months=0, manager_id=team.manager_id, onboarding_months_left=self.config.onboarding_months,
                      hired_month=self.month, institutional_knowledge=0.15, archetype=self.rng.choice(["steady", "helper", "mobile", "cautious"]),
                      morale=0.72, stress=0.25, trust_management=0.65, commitment=0.5)
+        e.skill_at_start = dict(e.skills)
+        if team.supervisory_share > 0 and self._r("hire_role", eid) < team.supervisory_share:
+            e.role_kind = "supervisor"
+            e.role_title = f"AI Supervisor ({e.role_title})"
+            e.skills["ai_supervision"] = round(0.3 + 0.4 * e.adaptability, 2)
         self.employees[eid] = e
         team.member_ids.append(eid)
         self.layout["employees"][eid] = place_new_employee(self.layout, team.id, len(team.member_ids) - 1)
@@ -498,24 +529,8 @@ class World:
                     base -= m_h
                 e.capacity_hours = max(0.0, base * cfg.productive_fraction * self.effectiveness(e))
                 cap += e.capacity_hours
-            # AI agent pool: adds routine capacity, consumes human supervision hours
-            for live, n_ag in list(t.ai_pipeline):
-                if live <= self.month:
-                    t.ai_pipeline.remove((live, n_ag))
-                    before = t.ai_agents
-                    t.ai_agents += n_ag
-                    self.emit("ai_agents_live", t.id, "ai_agents_live", [t.id], {"agents": before}, {"agents": t.ai_agents},
-                              self.recent_team_causes(t.id, months=12, limit=2), f"{t.ai_agents:.0f} AI agent-equivalents live in {t.name}", significant=True)
-            if t.ai_agents > 0 and members:
-                sup = t.ai_agents * t.ai_supervision_hours
-                # supervision comes off human capacity (spread across members); if humans can't cover it, agents idle
-                cover = min(sup, cap * 0.6)
-                for e in members:
-                    e.capacity_hours -= cover * (e.capacity_hours / max(1.0, cap))
-                cap -= cover
-                t.ai_capacity_hours = t.ai_agents * t.ai_hours_per_agent * (cover / max(1e-6, sup))
-            else:
-                t.ai_capacity_hours = 0.0
+            # AI agent pool (see ai.py): supervision off human hours, coverage, exception rate, incidents
+            cap = ai.apply_capacity(self, t, members, cap)
             t.capacity_hours = cap
             t.management_capacity_hours = mgmt_hours
 
@@ -565,11 +580,20 @@ class World:
                     trig.append("turnover_pressure")
                 if any(self.events[i].kind == "manager_changed" for i in team_causes):
                     trig.append("manager_changed")
+                if t.ai_agents > 0:
+                    if any(self.events[i].kind in ("ai_agents_live", "roles_converted") and self.events[i].month >= self.month - 1 for i in team_causes):
+                        trig.append("ai_introduced")
+                    if t.ai_incident:
+                        trig.append("ai_incident")
+                    if t.ai_items_this_month + t.ai_exceptions_this_month > 0 and t.ai_exceptions_this_month / max(1, t.ai_items_this_month + t.ai_exceptions_this_month) > 0.25 or t.ai_exception_rate > 0.3:
+                        trig.append("ai_exceptions_high")
+                    if t.ai_supervision_coverage < 0.8:
+                        trig.append("supervision_gap")
                 if not trig and self._r("periodic", m.id) < cfg.periodic_decision_fraction:
                     trig.append("periodic")
                 if trig:
                     kind = "manager" if m.id == t.manager_id else "employee"
-                    if kind == "manager" and not any(x in trig for x in ("team_backlog_high", "colleague_left", "restructure", "periodic", "manager_changed")) and t.workload < 1.05:
+                    if kind == "manager" and not any(x in trig for x in ("team_backlog_high", "colleague_left", "restructure", "periodic", "manager_changed", "ai_incident", "ai_exceptions_high", "supervision_gap", "ai_introduced")) and t.workload < 1.05:
                         continue
                     candidates.append((m, trig, team_causes, kind))
         # prioritise: managers first, then most overloaded; cap evaluations per team and per month
@@ -635,6 +659,8 @@ class World:
                 acts.append("apply_for_internal_job"); targets["apply_for_internal_job"] = vac
             if emp.turnover_intention > 0.2 and emp.status == "active":
                 acts.append("leave")
+            if team.ai_agents > 0 and team.ai_capacity_hours > 0:
+                acts.append("verify_ai_output")
         else:
             members = [m for m in self.active_members(team) if m.status == "active" and m.id != emp.id]
             if len(members) >= 2 and queue_items:
@@ -653,6 +679,12 @@ class World:
                 acts.append("reprioritise")
             if self.automation_enabled(team) and team.automation_level < 0.6 and not team.automation_pipeline:
                 acts.append("automate_task")
+            if team.ai_agents > 0 and team.ai_paused_until < self.month:
+                acts.append("pause_ai_agents")
+            if team.programme_expandable and team.ai_agents > 0 and not team.ai_pipeline and team.ai_exception_rate < 0.12 and team.ai_supervision_coverage >= 0.9:
+                acts.append("expand_ai_agents")
+            if team.ai_agents > 0 and team.ai_supervision_coverage < 0.9 and any(m.role_kind == "officer" and m.id != team.manager_id for m in self.active_members(team)):
+                acts.append("retrain_staff")
             if self.unshared_info(emp) or any(self.events[i].kind == "intervention" and self.events[i].month >= self.month - 1 for i in range(max(0, len(self.events) - 200), len(self.events))):
                 acts.append("share_information")
         return acts, targets
@@ -789,22 +821,23 @@ class World:
                     w.status = "expired"
                     expired += 1
                     continue
-                # AI agents take routine, non-approval items first (bounded by their capacity); exceptions bounce back to humans
-                if ai_avail > 0.5 and not stage.approval and stage.routine >= 0.4 and w.remaining_hours <= ai_avail:
+                # AI agents take eligible items first (bounded by their capacity); exceptions bounce back to humans
+                if ai_avail > 0.5 and w.remaining_hours <= ai_avail and ai.eligible(t, w, stage, p):
                     ai_avail -= w.remaining_hours
-                    if self._r("ai_exception", w.id) < t.ai_exception_rate:
-                        t.ai_exceptions_this_month += 1
-                        w.remaining_hours = w.stage_hours * 0.5     # human picks up the exception
-                    else:
-                        w.remaining_hours = 0.0
+                    if ai.handle_item(self, t, w, stage) == "done":
                         w.assignee_id = None
                         self._advance(w, t)
                         continue
+                    self._flows.append({"item": w.id, "from": t.id, "to": t.id, "kind": w.kind, "priority": w.priority, "exception": True})
                 if stage.approval and not w.workaround:
                     need = stage.hours_mean
                     mgr = self.employees.get(t.manager_id) if t.manager_id else None
                     can_self_approve = t.autonomy >= 0.75
                     has_approver = (mgr and mgr.status == "active" and mgr.absent_fraction < 1.0) or any(m.grade >= 5 or m.is_manager for m in members)
+                    if ai.approval_by_ai(self, t, w, p):
+                        w.remaining_hours = 0.0
+                        self._advance(w, t)
+                        continue
                     if (has_approver and mgmt_avail >= need) or can_self_approve:
                         if not can_self_approve:
                             mgmt_avail -= need
@@ -877,6 +910,8 @@ class World:
     def _advance(self, w: WorkItem, from_team: Team) -> None:
         p = self.processes[w.process_id]
         if w.stage_index + 1 >= len(p.stages):
+            if w.ai_silent_error:
+                ai.final_stage_silent_error(self, w, from_team)
             w.status = "done"
             w.completed_month = self.month
             w.assignee_id = None
@@ -899,11 +934,13 @@ class World:
         w.status = "queued"
         w.assignee_id = None
         w.workaround = False
+        if w.ai_silent_error:
+            ai.surface_silent_error(self, w, self.teams[new_team], old_team)
         if old_team != new_team:
             self.teams[new_team].queue.append(w.id)
             w.path.append((self.month, new_team))
             if record_flow:
-                self._flows.append({"item": w.id, "from": old_team, "to": new_team, "kind": w.kind, "priority": w.priority})
+                self._flows.append({"item": w.id, "from": old_team, "to": new_team, "kind": w.kind, "priority": w.priority, "ai": w.ai_handled})
         elif w.id not in self.teams[new_team].queue:
             self.teams[new_team].queue.append(w.id)
 
@@ -1092,6 +1129,13 @@ class World:
                 "ai_agents": round(t.ai_agents, 1),
                 "ai_capacity_hours": round(t.ai_capacity_hours, 1),
                 "ai_exceptions": t.ai_exceptions_this_month,
+                "ai_items": t.ai_items_this_month,
+                "ai_exception_rate": round(t.ai_exception_rate, 3) if t.ai_agents > 0 else 0.0,
+                "ai_supervision_coverage": round(t.ai_supervision_coverage, 3) if t.ai_agents > 0 else 1.0,
+                "ai_incident": 1 if t.ai_incident else 0,
+                "downstream_ai_errors": t.downstream_ai_errors_this_month,
+                "supervisors": sum(1 for m in self.active_members(t) if m.role_kind == "supervisor"),
+                "ai_cost_month": round(t.ai_agents * t.ai_monthly_cost_per_agent),
             }
         return {
             "month": self.month,
@@ -1124,6 +1168,13 @@ class World:
             "dropped": sum(getattr(t, "expired_this_month", 0) for t in self.teams.values()),
             "ai_agents": round(sum(t.ai_agents for t in self.teams.values()), 1),
             "ai_exceptions": sum(t.ai_exceptions_this_month for t in self.teams.values()),
+            "ai_items": sum(t.ai_items_this_month for t in self.teams.values()),
+            "ai_capacity_share": round(sum(t.ai_capacity_hours for t in self.teams.values()) / max(1.0, cap + sum(t.ai_capacity_hours for t in self.teams.values())), 3),
+            "ai_incidents": sum(1 for t in self.teams.values() if t.ai_incident),
+            "downstream_ai_errors": sum(t.downstream_ai_errors_this_month for t in self.teams.values()),
+            "supervisors": sum(1 for e in active if e.role_kind == "supervisor"),
+            "ai_cost_month": round(sum(t.ai_agents * t.ai_monthly_cost_per_agent for t in self.teams.values())),
+            "deskilling_index": ai.deskilling_index(self),
             "teams": teams,
         }
 
@@ -1174,7 +1225,7 @@ class World:
                 continue
             x, z = self.layout["employees"].get(e.id, (0.0, 0.0))
             emps.append([e.id, e.team_id, round(x, 2), round(z, 2), round(e.workload, 2), round(e.stress, 2), round(e.morale, 2),
-                         e.status, 1 if e.is_manager else 0, e.current_behaviour, len(e.active_tasks), e.onboarding_months_left])
+                         e.status, 1 if e.is_manager else 0, e.current_behaviour, len(e.active_tasks), e.onboarding_months_left, e.role_kind])
         teams = []
         for t in self.teams.values():
             tx, tz, r = self.layout["teams"][t.id]
@@ -1183,7 +1234,9 @@ class World:
                           "workload": round(t.workload, 2), "headcount": len([m for m in self.active_members(t) if m.status == "active"]),
                           "vacancies": len(t.vacancies), "management_load": round(t.management_load, 2), "morale": round(t.morale, 2),
                           "accepting": t.accepting_transfers, "automation": round(t.automation_level, 2), "function": t.function,
-                          "ai_agents": round(t.ai_agents, 1)})
+                          "ai_agents": round(t.ai_agents, 1), "ai_incident": t.ai_incident, "ai_paused": t.ai_paused_until >= self.month,
+                          "ai_coverage": round(t.ai_supervision_coverage, 2), "ai_exception_rate": round(t.ai_exception_rate, 2) if t.ai_agents else 0,
+                          "supervisors": sum(1 for m in self.active_members(t) if m.role_kind == "supervisor")})
         # process paths (team -> team edges with monthly volume) for rendering flows
         return {"month": self.month, "label": self.date_label(), "employees": emps, "teams": teams,
                 "flows": self._flows[:400], "info_flows": self._info_flows[:200],
@@ -1248,7 +1301,7 @@ class World:
         return {"team": {k: v for k, v in to_dict(t).items() if k not in ("queue",)},
                 "queue_by_kind": dict(sorted(by_kind.items(), key=lambda kv: -kv[1])),
                 "members": [{"id": m.id, "name": m.name, "role_title": m.role_title, "workload": round(m.workload, 2), "stress": round(m.stress, 2),
-                             "morale": round(m.morale, 2), "status": m.status, "behaviour": m.current_behaviour, "is_manager": m.id == t.manager_id}
+                             "morale": round(m.morale, 2), "status": m.status, "behaviour": m.current_behaviour, "is_manager": m.id == t.manager_id, "role_kind": m.role_kind}
                             for m in self.active_members(t)],
                 "history": [{"month": h["month"], **h["teams"].get(tid, {})} for h in self.metrics_history[-36:]],
                 "events": [to_dict(ev) for ev in self.events if tid in ev.entities and ev.significant][-15:]}

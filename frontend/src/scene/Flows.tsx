@@ -25,15 +25,16 @@ export function Flows({ frame, offset, xray, t01, teamPos }: { frame: Frame; off
         const a = teamPos[f.from], b = teamPos[f.to]
         if (!a || !b) { tmp.scale.set(0, 0, 0); tmp.updateMatrix(); m.setMatrixAt(i, tmp.matrix); return }
         const t = clamp01((t01 - f.phase) / 0.4)
-        const x = a[0] + (b[0] - a[0]) * t, z = a[1] + (b[1] - a[1]) * t
-        const y = 0.6 + Math.sin(Math.PI * t) * f.lift
+        let x = a[0] + (b[0] - a[0]) * t, z = a[1] + (b[1] - a[1]) * t
+        let y = 0.6 + Math.sin(Math.PI * t) * f.lift
+        if (f.exception) { const ang = f.phase * 10; x = a[0] + Math.cos(ang) * 2.2 * t; z = a[1] + Math.sin(ang) * 2.2 * t; y = 0.4 + Math.sin(Math.PI * t) * 1.4 }
         const vis = t > 0 && t < 1 ? 1 : 0
         tmp.position.set(offset[0] + x, offset[1] + y, offset[2] + z)
         const s = vis * (f.priority === 1 ? 1.5 : f.priority === 2 ? 1.1 : 0.8) * (f.transfer ? 1.4 : 1)
         tmp.scale.set(s, s, s)
         tmp.updateMatrix()
         m.setMatrixAt(i, tmp.matrix)
-        col.copy(f.transfer ? WORK_HIGH : WORK)
+        if (f.exception) col.set('#ff5fd2'); else if (f.ai) col.set('#6fd3ff'); else col.copy(f.transfer ? WORK_HIGH : WORK)
         m.setColorAt(i, col)
       })
       m.count = flows.length

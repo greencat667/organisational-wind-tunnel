@@ -40,10 +40,8 @@ All parameters live in `backend/windtunnel/config.py` (`SimConfig`) and `orggen.
   3 months (+1–2 if the HR-capable team is overloaded); recruitment creates a real people-case work item; new hires
   onboard for 4 months. Restructured teams have hiring frozen for 6 months.
 * **Budget:** team budget = pay × 1.18. Departments freeze hiring when projected annual spend > budget (hysteresis 0.97).
-* **Automation / AI agents:** implementation is real work (an internal project item) with a lag of 3–4 months before
-  capacity appears. AI agents supply routine capacity (120 h/agent-month), cost £900/agent-month, need human supervision
-  (12 h/agent-month, off human capacity) and bounce 12% of items back as exceptions. Converting roles to supervisory
-  lowers supervision cost and exception rate.
+* **Automation / AI agents:** see [AI_SCENARIOS.md](AI_SCENARIOS.md) — agent pools with supervision coverage, learning, drift,
+  exceptions, silent errors surfacing downstream, incidents, skill atrophy, attrition-based downsizing, delegated approvals.
 
 ## Psychology (bounded, monthly)
 * stress → target 0.15 + 0.5·max(0, workload−0.9) + 0.15·overtime/20 + 0.2·max(0, backlog months−0.6) +

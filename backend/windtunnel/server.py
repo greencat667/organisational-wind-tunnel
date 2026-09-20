@@ -35,7 +35,10 @@ SCENARIOS = [
     {"id": "flatten", "name": "Flatten structure", "text": "Remove one management layer and increase team autonomy."},
     {"id": "funding_shock", "name": "Funding shock", "text": "Organisation income falls 15% next year."},
     {"id": "rapid_growth", "name": "Rapid growth", "text": "Demand for services doubles over two years."},
-    {"id": "ai_agents", "name": "AI agent teams", "text": "Deploy AI agents to handle 60% of back-office work over 12 months, with admin staff becoming supervisors of agent teams."},
+    {"id": "ai_backend", "name": "Automate back end", "text": "Automate the back office: deploy AI agents to take 70% of routine finance, HR and administrative work over 6 months, and do not replace leavers in those teams."},
+    {"id": "ai_supervisors", "name": "Supervisory roles", "text": "Convert half of the administrative and finance roles into supervisors of AI agent teams, with agents handling 80% of routine work."},
+    {"id": "ai_loops", "name": "AI workflow loops", "text": "Let AI run the procurement, invoicing and expenses workflows end to end for 80% of cases, with humans handling exceptions and approvals."},
+    {"id": "ai_loops_delegated", "name": "AI loops + approvals", "text": "Let AI run the procurement, invoicing and expenses workflows end to end for 80% of cases, including approvals, with humans handling exceptions only."},
     {"id": "merge", "name": "Merge teams", "text": "Merge the fundraising and communications teams."},
 ]
 

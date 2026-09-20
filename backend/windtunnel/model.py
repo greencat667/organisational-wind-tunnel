@@ -75,6 +75,8 @@ class Employee:
     leaving_month: Optional[int] = None
     left_month: Optional[int] = None
     current_behaviour: str = "working"
+    role_kind: str = "officer"        # officer | supervisor (of AI agents) | manager
+    skill_at_start: dict[str, float] = field(default_factory=dict)   # for the deskilling index
     last_decision_month: int = -1
     help_requests_received: int = 0
     help_given: int = 0
@@ -135,12 +137,26 @@ class Team:
     ai_agents: float = 0.0                 # agent-equivalents live
     ai_pipeline: list[tuple[int, float]] = field(default_factory=list)   # (live_month, agents)
     ai_hours_per_agent: float = 120.0       # productive hours per agent-equivalent per month
-    ai_supervision_hours: float = 12.0      # human hours per agent per month
-    ai_exception_rate: float = 0.12         # share of AI-processed items bounced back to humans
+    ai_supervision_hours: float = 12.0      # human hours per agent per month at supervision skill 0 (falls with skill)
+    ai_base_exception_rate: float = 0.16    # exceptions on day one; learning and supervision bring it down
+    ai_exception_rate: float = 0.16         # current effective rate (recomputed monthly)
+    ai_silent_error_rate: float = 0.04      # AI output that passes but carries a hidden defect (surfaces downstream)
     ai_monthly_cost_per_agent: float = 900.0
+    ai_routine_threshold: float = 0.4       # stages with at least this routine share are eligible for agents
+    ai_handles_urgent: bool = False         # agents take priority-1 items?
+    ai_live_month: Optional[int] = None     # first month agents were live (maturity)
+    ai_paused_until: int = -1               # manager can pause agents after an incident
+    ai_incident: bool = False               # incident this month (agents unavailable)
+    ai_incidents_total: int = 0
+    ai_supervision_coverage: float = 1.0    # supervision hours available / needed (computed)
+    ai_items_this_month: int = 0
+    replace_leavers: bool = True            # False = attrition-based downsizing (posts not backfilled while AI covers the work)
+    programme_expandable: bool = False      # managers may expand the agent pool
     supervisory_share: float = 0.0          # share of members whose role is now supervising agents
     ai_capacity_hours: float = 0.0          # computed each month
     ai_exceptions_this_month: int = 0
+    downstream_ai_errors_this_month: int = 0   # hidden AI defects that surfaced in THIS team's work
+    verify_hours_this_month: float = 0.0
 
 
 @dataclass
@@ -181,6 +197,8 @@ class Process:
     deadline_months: int = 2
     priority_weights: tuple[float, float, float] = (0.2, 0.5, 0.3)  # P(high, medium, low)
     frontline: bool = False       # counts towards "delivery" metric
+    ai_run_share: float = 0.0     # share of cases an AI loop runs end to end
+    ai_delegated_approvals: bool = False   # AI may approve non-urgent items in this process
 
 
 @dataclass
@@ -204,6 +222,10 @@ class WorkItem:
     completed_month: Optional[int] = None
     transferred: bool = False     # moved off its normal process path by a decision
     workaround: bool = False      # skipped an approval stage
+    ai_handled: bool = False      # last stage was done by AI agents
+    ai_exception: bool = False    # bounced back to humans by AI
+    ai_silent_error: bool = False # carries a hidden AI defect that will surface at the next stage
+    ai_approved: bool = False     # approval delegated to AI
 
 
 @dataclass

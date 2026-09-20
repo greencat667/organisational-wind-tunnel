@@ -245,11 +245,49 @@ def apply_action(world: "World", emp: "Employee", d: "AgentDecision", cause: int
         world.emit("reprioritised", emp.id, "reprioritise", [team.id], {}, {}, [cause], f"{emp.name} reprioritised {team.name}'s queue towards frontline work")
         return
 
+    if a == "verify_ai_output":
+        hours = emp.capacity_hours * cfg.verify_share
+        emp.capacity_hours -= hours
+        team.verify_hours_this_month += hours
+        world.emit("ai_verified", emp.id, "verify_ai_output", [emp.id, team.id], {}, {"hours": round(hours, 1)}, [cause],
+                   f"{emp.name} spent {hours:.0f}h checking AI output in {team.name}")
+        return
+
+    if a == "pause_ai_agents":
+        team.ai_paused_until = world.month + 1
+        team.ai_capacity_hours = 0.0
+        world.emit("ai_paused", emp.id, "pause_ai_agents", [team.id], {}, {"until": team.ai_paused_until}, [cause],
+                   f"{emp.name} paused {team.name}'s AI agents for a month", significant=True)
+        return
+
+    if a == "expand_ai_agents":
+        add = round(max(0.5, team.ai_agents * 0.2), 1)
+        team.ai_pipeline.append((world.month + 2, add))
+        tech = world._team_with_skill("tech")
+        _deployment_work(world, team, add, 2, tech)
+        world.emit("ai_expanded", emp.id, "expand_ai_agents", [team.id], {"agents": team.ai_agents}, {"planned": add}, [cause],
+                   f"{emp.name} expanded {team.name}'s AI agents by {add:.1f}", significant=True)
+        return
+
+    if a == "retrain_staff":
+        members = [m for m in world.active_members(team) if m.status == "active" and m.role_kind == "officer" and m.id != team.manager_id]
+        chosen = sorted(members, key=lambda m: -m.adaptability)[:2]
+        for m in chosen:
+            m.role_kind = "supervisor"
+            m.role_title = f"AI Supervisor ({m.role_title})"
+            m.skills["ai_supervision"] = round(min(0.9, 0.3 + 0.5 * m.adaptability), 2)
+            m.capacity_hours = max(0.0, m.capacity_hours - 20.0)   # training time this month
+            m.memory.append(MemoryTrace(world.month, "role_changed", 0.2 * (m.change_tolerance - 0.5), 0.9))
+        if chosen:
+            world.emit("staff_retrained", emp.id, "retrain_staff", [team.id] + [m.id for m in chosen], {}, {"n": len(chosen)}, [cause],
+                       f"{emp.name} retrained {len(chosen)} officers as AI supervisors in {team.name}", significant=True)
+        return
+
     if a == "automate_task":
         level = 0.2
         hours = cfg.automation_implementation_hours_per_level * level
         # implementation effort is real work: create an internal project item on the team's own queue
-        p = next(iter(world.processes.values()))
+        p = world.internal_process(team.id)
         world._item_seq += 1
         w = WorkItem(id=f"W{world._item_seq:06d}", process_id=p.id, kind="automation project", priority=2, stage_index=0, team_id=team.id,
                      remaining_hours=hours, stage_hours=hours, created_month=world.month, deadline_month=world.month + 6, origin_team_id=team.id)
@@ -308,18 +346,18 @@ def apply_change(world: "World", change: dict[str, Any]) -> None:
     if op == "_ai_process_live":
         p = world.processes.get(change["process"])
         if p:
-            share = float(change["share"])
-            for s in p.stages:
-                if not s.approval:
-                    s.routine = max(s.routine, 0.9)
-                    # AI-run share removes the human hours for that share; exceptions come back via the team's exception rate
-                    s.hours_mean *= (1.0 - share * 0.85)
-                    s.hours_sd = s.hours_mean * 0.3
-                    t = world.teams.get(world.resolve_team(s.team_id))
-                    if t:
-                        t.ai_exception_rate = max(t.ai_exception_rate, 0.12)
-            world.emit("ai_process_live", "system", "ai_process_live", [p.id] + [world.resolve_team(s.team_id) for s in p.stages], {}, {"share": share},
-                       [world.intervention_root] if world.intervention_root is not None else [], f"AI now runs {p.name} for {int(share*100)}% of cases", significant=True)
+            p.ai_run_share = float(change["share"])
+            p.ai_delegated_approvals = bool(change.get("delegate", False))
+            teams_touched = [world.resolve_team(s.team_id) for s in p.stages if not s.approval]
+            world.emit("ai_process_live", "system", "ai_process_live", [p.id] + teams_touched, {}, {"share": p.ai_run_share, "delegate": p.ai_delegated_approvals},
+                       [world.intervention_root] if world.intervention_root is not None else [],
+                       f"AI now runs {p.name} for {int(p.ai_run_share*100)}% of cases" + (" and approves non-urgent items" if p.ai_delegated_approvals else ""), significant=True)
+        return
+    if op == "_enqueue":
+        t = world.teams.get(change["team"]); w = world.work_items.get(change["item"])
+        if t and w and w.id not in t.queue:
+            w.status = "queued"
+            t.queue.append(w.id)
         return
     if op == "_unfreeze_team":
         if change["team"] in world.teams and not any(c.get("op") == "reduce_capacity" and change["team"] in resolve_targets(world, c.get("target", "all")) for c in world.scheduled):
@@ -472,8 +510,10 @@ def apply_change(world: "World", change: dict[str, Any]) -> None:
         return
 
     if op == "deploy_ai_agents":
-        share = float(change.get("amount", 0.3))
-        lag = int(change.get("lag_months", 3))
+        share = float(change.get("amount") or 0.3)
+        lag = int(change.get("lag_months") or 3)
+        replace = change.get("replace_leavers") is not False
+        tech = world._team_with_skill("tech")
         for tid in targets:
             team = world.teams[tid]
             routine_hours = sum(p.arrival_rate * s.hours_mean * s.routine for p in world.processes.values() for s in p.stages
@@ -482,55 +522,80 @@ def apply_change(world: "World", change: dict[str, Any]) -> None:
             if agents <= 0:
                 continue
             team.ai_pipeline.append((world.month + lag, agents))
+            team.replace_leavers = replace
+            team.programme_expandable = bool(change.get("expandable", True))
+            if change.get("handles_urgent"):
+                team.ai_handles_urgent = True
             world.intervention_targets.add(tid)
-            # implementation is real work for the team: an internal project item
-            p = next(iter(world.processes.values()))
-            world._item_seq += 1
-            hours = 60.0 * agents
-            w = WorkItem(id=f"W{world._item_seq:06d}", process_id=p.id, kind="AI deployment project", priority=2, stage_index=0, team_id=tid,
-                         remaining_hours=hours, stage_hours=hours, created_month=world.month, deadline_month=world.month + lag, origin_team_id=tid)
-            w.path.append((world.month, tid))
-            world.work_items[w.id] = w
-            team.queue.append(w.id)
-            world.emit("ai_agents_deployed", "intervention", "deploy_ai_agents", [tid], {"agents": team.ai_agents}, {"agents_planned": agents, "live_month": world.month + lag},
-                       causes, f"{team.name}: {agents:.0f} AI agent-equivalents to take {int(share*100)}% of routine work (live in {lag} months)", significant=True)
+            _deployment_work(world, team, agents, lag, tech)
+            world.emit("ai_agents_deployed", "intervention", "deploy_ai_agents", [tid] + ([tech.id] if tech else []), {"agents": team.ai_agents},
+                       {"agents_planned": agents, "live_month": world.month + lag, "replace_leavers": replace}, causes,
+                       f"{team.name}: {agents:.0f} AI agent-equivalents to take {int(share*100)}% of routine work (live in {lag} months"
+                       f"{'; leavers not replaced' if not replace else ''})", significant=True)
             for m in world.active_members(team):
                 m.memory.append(MemoryTrace(world.month, "ai_introduced", -0.1 + 0.3 * (m.change_tolerance - 0.5), 0.9))
+            if not replace:
+                world._new_packet("rumour", f"Posts in {team.name} will not be refilled once AI agents arrive", ["management"], -0.3,
+                                  seed_holders=[m.id for m in world.active_members(team)][:3])
         return
 
     if op == "convert_to_supervisory":
-        share = float(change.get("amount", 0.3))
+        share = float(change.get("amount") or 0.3)
         for tid in targets:
             team = world.teams[tid]
             team.supervisory_share = min(1.0, team.supervisory_share + share)
-            team.ai_supervision_hours = max(6.0, team.ai_supervision_hours * 0.7)   # dedicated supervisors are more efficient
-            team.ai_exception_rate = max(0.04, team.ai_exception_rate * 0.75)
-            members = [m for m in world.active_members(team) if m.status == "active" and m.id != team.manager_id]
+            members = [m for m in world.active_members(team) if m.status == "active" and m.id != team.manager_id and m.role_kind == "officer"]
             n = int(round(len(members) * share))
-            for m in sorted(members, key=lambda m: -m.adaptability)[:n]:
+            chosen = sorted(members, key=lambda m: -m.adaptability)[:n]
+            for m in chosen:
+                m.role_kind = "supervisor"
                 m.role_title = f"AI Supervisor ({m.role_title})" if not m.role_title.startswith("AI Supervisor") else m.role_title
-                m.skills["ai_supervision"] = round(min(0.9, 0.4 + 0.5 * m.adaptability), 2)
+                m.skills["ai_supervision"] = round(min(0.9, 0.35 + 0.5 * m.adaptability), 2)
                 m.autonomy = min(1.0, m.autonomy + 0.1)
-                m.memory.append(MemoryTrace(world.month, "role_changed", 0.2 * (m.change_tolerance - 0.5), 0.9))
+                m.memory.append(MemoryTrace(world.month, "role_changed", 0.25 * (m.change_tolerance - 0.5), 0.9))
+            for m in members:
+                if m not in chosen:
+                    m.memory.append(MemoryTrace(world.month, "colleagues_reassigned", -0.1, 0.7))
+            # a team of supervisors with no agents yet gets a small pool so the role means something
+            if team.ai_agents <= 0 and not team.ai_pipeline and n > 0:
+                team.ai_pipeline.append((world.month + 2, float(n * 4)))
+                team.programme_expandable = True
+                world.intervention_targets.add(tid)
             world.intervention_targets.add(tid)
-            world.emit("roles_converted", "intervention", "convert_to_supervisory", [tid], {}, {"converted": n}, causes,
+            world.emit("roles_converted", "intervention", "convert_to_supervisory", [tid] + [m.id for m in chosen], {}, {"converted": n}, causes,
                        f"{team.name}: {n} roles converted to supervising AI agents", significant=True)
+            world._new_packet("announcement", f"{n} roles in {team.name} become AI supervisors", ["management"], 0.0,
+                              seed_holders=[m.id for m in chosen][:3])
         return
 
     if op == "ai_run_process":
-        share = float(change.get("amount", 0.5))
-        lag = int(change.get("lag_months", 4))
-        procs = change.get("processes") or [p.id for p in world.processes.values()
-                                            if any(world.resolve_team(s.team_id) in targets for s in p.stages) and all(s.routine >= 0.4 or s.approval for s in p.stages)]
+        share = float(change.get("amount") or 0.5)
+        lag = int(change.get("lag_months") or 4)
+        delegate = bool(change.get("delegate_approvals") or False)
+        procs = _resolve_processes(world, change.get("processes")) or _eligible_processes(world, targets)
+        tech = world._team_with_skill("tech")
+        touched: set[str] = set()
         for pid in procs:
             p = world.processes.get(pid)
             if not p:
                 continue
-            world.scheduled.append({"month": world.month + lag, "op": "_ai_process_live", "process": pid, "share": share})
+            world.scheduled.append({"month": world.month + lag, "op": "_ai_process_live", "process": pid, "share": share, "delegate": delegate})
             for s in p.stages:
-                world.intervention_targets.add(world.resolve_team(s.team_id))
-        world.emit("ai_process_planned", "intervention", "ai_run_process", list(procs), {}, {"share": share, "live_month": world.month + lag}, causes,
-                   f"AI to run {len(procs)} workflow{'s' if len(procs) != 1 else ''} end to end for {int(share*100)}% of cases (live in {lag} months)", significant=True)
+                if not s.approval:
+                    touched.add(world.resolve_team(s.team_id))
+        for tid in touched:
+            team = world.teams[tid]
+            hours = sum(p.arrival_rate * s.hours_mean for pid in procs if pid in world.processes for p in [world.processes[pid]] for s in p.stages
+                        if not s.approval and world.resolve_team(s.team_id) == tid) * share
+            agents = round(hours / team.ai_hours_per_agent, 1)
+            if agents > 0:
+                team.ai_pipeline.append((world.month + lag, agents))
+                team.programme_expandable = False
+                world.intervention_targets.add(tid)
+                _deployment_work(world, team, agents, lag, tech)
+        world.emit("ai_process_planned", "intervention", "ai_run_process", list(procs) + sorted(touched), {}, {"share": share, "live_month": world.month + lag, "delegate_approvals": delegate},
+                   causes, f"AI to run {len(procs)} workflow{'s' if len(procs) != 1 else ''} end to end for {int(share*100)}% of cases (live in {lag} months"
+                   f"{'; approvals delegated to AI' if delegate else '; approvals stay human'})", significant=True)
         return
 
     if op == "change_working_hours":
@@ -688,11 +753,20 @@ def describe_plan(world: "World", plan: "ChangePlan") -> list[str]:
         elif ch.operation == "shock":
             lines.append(f"External shock: {ch.kind} {int((ch.amount or 0)*100)}%")
         elif ch.operation == "deploy_ai_agents":
-            lines.append(f"AI agents take {int((ch.amount or 0.3)*100)}% of routine work in: {names} (supervised by staff; exceptions return to humans)")
+            agents = 0.0
+            for t in tids:
+                rh = sum(p.arrival_rate * s.hours_mean * s.routine for p in world.processes.values() for s in p.stages if world.resolve_team(s.team_id) == t and not s.approval)
+                agents += (ch.amount or 0.3) * rh / world.teams[t].ai_hours_per_agent
+            lines.append(f"Deploy ≈{agents:.0f} AI agent-equivalents for {int((ch.amount or 0.3)*100)}% of routine work in: {names} (live in {ch.lag_months or 3} months)")
+            lines.append("Leavers " + ("NOT replaced while agents cover the work" if ch.replace_leavers is False else "replaced as normal") + "; supervision, exceptions and implementation effort fall on staff")
         elif ch.operation == "convert_to_supervisory":
-            lines.append(f"Convert {int((ch.amount or 0.3)*100)}% of roles to supervising AI agents in: {names}")
+            n = sum(int(round((len(world.active_members(world.teams[t])) - 1) * (ch.amount or 0.3))) for t in tids)
+            lines.append(f"Convert {n} roles ({int((ch.amount or 0.3)*100)}%) to supervising AI agents in: {names}")
         elif ch.operation == "ai_run_process":
-            lines.append(f"AI runs eligible workflows end to end for {int((ch.amount or 0.5)*100)}% of cases touching: {names}")
+            procs = ch.processes or _eligible_processes(world, tids)
+            pn = ", ".join(world.processes[p].name for p in procs if p in world.processes) or "none eligible"
+            lines.append(f"AI runs {int((ch.amount or 0.5)*100)}% of cases end to end for: {pn}")
+            lines.append("Approvals " + ("delegated to AI for non-urgent items" if ch.delegate_approvals else "stay with human managers") + f"; live in {ch.lag_months or 4} months; exceptions return to staff")
         else:
             lines.append(f"{ch.operation} → {names or ch.target}")
     if plan.protected_groups:
@@ -703,3 +777,44 @@ def describe_plan(world: "World", plan: "ChangePlan") -> list[str]:
     lines.append(f"Transition: {plan.transition_period_months} months")
     lines.append("No other assumptions added.")
     return lines
+
+
+def _deployment_work(world: "World", team, agents: float, lag: int, tech) -> None:
+    """Implementation is real work: hours on the target team and on the technology team."""
+    cfg = world.config
+    for tid, hours in ((team.id, cfg.ai_deploy_hours_per_agent * agents), (tech.id if tech else None, cfg.ai_tech_hours_per_agent * agents)):
+        if not tid or hours <= 0:
+            continue
+        p = world.internal_process(tid)
+        world._item_seq += 1
+        w = WorkItem(id=f"W{world._item_seq:06d}", process_id=p.id, kind="AI deployment project", priority=2, stage_index=0, team_id=tid,
+                     remaining_hours=hours, stage_hours=hours, created_month=world.month, deadline_month=world.month + lag, origin_team_id=team.id)
+        w.path.append((world.month, tid))
+        world.work_items[w.id] = w
+        world.teams[tid].queue.append(w.id)
+        if tid != team.id:
+            world.teams[tid].transfers_in += 1
+
+
+def _eligible_processes(world: "World", targets: list[str]) -> list[str]:
+    """Processes touching the target teams whose human stages are mostly routine."""
+    out = []
+    for p in world.processes.values():
+        stages = [s for s in p.stages if not s.approval]
+        if not stages:
+            continue
+        if any(world.resolve_team(s.team_id) in targets for s in stages) and sum(s.routine for s in stages) / len(stages) >= 0.5:
+            out.append(p.id)
+    return out
+
+
+def _resolve_processes(world: "World", names) -> list[str]:
+    if not names:
+        return []
+    out = []
+    for n in names:
+        nl = str(n).lower().strip()
+        for p in world.processes.values():
+            if nl == p.id or nl in p.name.lower() or nl in p.kind.lower() or p.id in nl:
+                out.append(p.id)
+    return list(dict.fromkeys(out))

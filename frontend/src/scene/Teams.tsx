@@ -34,6 +34,45 @@ export function Teams({ frame, world, offset, xray, diffTeams }: { frame: Frame;
   )
 }
 
+/** AI agent pool: a ring of small cubes beside the team. Cyan = working, dim = paused/under-supervised, red = incident. */
+function AgentPool({ t }: { t: TeamFrame }) {
+  const ref = useRef<THREE.InstancedMesh>(null!)
+  const n = Math.max(1, Math.round(t.ai_agents || 0))
+  const geo = useMemo(() => new THREE.BoxGeometry(0.28, 0.28, 0.28), [])
+  const tmp = useMemo(() => new THREE.Object3D(), [])
+  const col = useMemo(() => new THREE.Color(), [])
+  useFrame(({ clock }) => {
+    const m = ref.current; if (!m) return
+    const time = clock.getElapsedTime()
+    const cx = -(t.r + 1.4), cz = 0
+    const radius = 0.5 + 0.12 * n
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + time * (t.ai_incident || t.ai_paused ? 0 : 0.35)
+      const y = 0.6 + 0.12 * Math.sin(time * 2 + i)
+      tmp.position.set(cx + Math.cos(a) * radius, y, cz + Math.sin(a) * radius)
+      tmp.rotation.set(time * 0.5, a, 0)
+      const s = 0.8 + 0.25 * Math.sin(time * 3 + i * 0.7)
+      tmp.scale.set(s, s, s)
+      tmp.updateMatrix(); m.setMatrixAt(i, tmp.matrix)
+      if (t.ai_incident) col.set('#ff7a8a')
+      else if (t.ai_paused) col.set('#3a4658')
+      else { col.set('#6fd3ff'); col.multiplyScalar(0.45 + 0.55 * (t.ai_coverage ?? 1)) }
+      m.setColorAt(i, col)
+    }
+    m.count = n; m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true
+  })
+  return (
+    <group>
+      <instancedMesh ref={ref} args={[geo, undefined, Math.max(1, n)]} frustumCulled={false} raycast={() => null}>
+        <meshStandardMaterial emissive={'#ffffff'} emissiveIntensity={0.6} toneMapped={false} />
+      </instancedMesh>
+      <Text position={[-(t.r + 1.4), 0.05, 1.1 + 0.12 * n]} rotation={[-Math.PI / 2, 0, 0]} fontSize={0.34} color={t.ai_incident ? '#ff7a8a' : '#6fd3ff'} anchorX="center">
+        {`${n} AI agent${n === 1 ? '' : 's'}${t.ai_incident ? ' · incident' : t.ai_paused ? ' · paused' : (t.ai_coverage ?? 1) < 0.8 ? ' · under-supervised' : ''}${t.supervisors ? ` · ${t.supervisors} sup.` : ''}`}
+      </Text>
+    </group>
+  )
+}
+
 function TeamCluster({ t, world, xray, selected, diff, onClick, onHover, onOut }:
   { t: TeamFrame; world: WorldLabel; xray: XRay; selected: boolean; diff: number; onClick: () => void; onHover: (x: number, y: number) => void; onOut: () => void }) {
   const color = useMemo(() => deptColor(t.dept), [t.dept])
@@ -84,12 +123,7 @@ function TeamCluster({ t, world, xray, selected, diff, onClick, onHover, onOut }
           <Text position={[0, -0.25, 0.5]} fontSize={0.42} color={'#8b96ab'} anchorX="center" anchorY="top">{`${t.queue}`}</Text>
         </group>
       )}
-      {!!t.ai_agents && t.ai_agents > 0 && (
-        <mesh position={[-(t.r + 1.0), 0.6, 0]} raycast={() => null}>
-          <octahedronGeometry args={[0.35 + 0.08 * Math.min(8, t.ai_agents), 0]} />
-          <meshStandardMaterial color={'#6fd3ff'} emissive={'#6fd3ff'} emissiveIntensity={0.8} wireframe toneMapped={false} />
-        </mesh>
-      )}
+      {!!t.ai_agents && t.ai_agents > 0 && <AgentPool t={t} />}
       <Text position={[0, 0.05, -(t.r + 1.0)]} rotation={[-Math.PI / 2, 0, 0]} fontSize={0.62} color={selected ? '#ffffff' : '#c3cbe0'} anchorX="center" anchorY="middle" letterSpacing={0.08}>
         {t.name}
       </Text>

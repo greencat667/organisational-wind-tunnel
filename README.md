@@ -71,8 +71,13 @@ maintaining existing frontline delivery* → **SIMULATE CHANGE** → check the i
 | [docs/SIMULATION_MODEL.md](docs/SIMULATION_MODEL.md) | every simulation assumption: organisation, work, processes, physics, psychology, information, finance |
 | [docs/AGENT_DECISIONS.md](docs/AGENT_DECISIONS.md) | decision engine abstraction, triggers, context compression, actions, confidence routing, cache |
 | [docs/LAYA.md](docs/LAYA.md) · [docs/NEEDLE.md](docs/NEEDLE.md) · [docs/APPLE_FOUNDATION_MODELS.md](docs/APPLE_FOUNDATION_MODELS.md) | verified APIs, how each model is used, measured latency, pitfalls |
+| [docs/AI_SCENARIOS.md](docs/AI_SCENARIOS.md) | AI agent pools, supervision, exceptions, silent errors, incidents, deskilling, attrition-based downsizing, delegated approvals; measured outcomes |
 | [docs/VALIDATION.md](docs/VALIDATION.md) | what has been checked, how historical validation would work |
 | [docs/PRIVACY.md](docs/PRIVACY.md) · [docs/LIMITATIONS.md](docs/LIMITATIONS.md) | privacy design; what this tool is and is not |
+
+## AI-impact scenarios
+
+Three shipped chips — **Automate back end**, **Supervisory roles**, **AI workflow loops** (plus a delegated-approvals variant) — exercise the AI primitives: agent pools that need human supervision, exceptions returning to staff, hidden defects surfacing downstream, incidents, skill atrophy and attrition-based downsizing. See [docs/AI_SCENARIOS.md](docs/AI_SCENARIOS.md).
 
 ## Status
 

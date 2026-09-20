@@ -1,11 +1,12 @@
-export type EmployeeRow = [string, string, number, number, number, number, number, string, number, string, number, number]
-// [id, team, x, z, workload, stress, morale, status, is_manager, behaviour, tasks, onboarding]
+export type EmployeeRow = [string, string, number, number, number, number, number, string, number, string, number, number, string]
+// [id, team, x, z, workload, stress, morale, status, is_manager, behaviour, tasks, onboarding, role_kind]
 
 export interface TeamFrame {
   id: string; name: string; dept: string; x: number; z: number; r: number; queue: number; backlog_months: number; workload: number
-  headcount: number; vacancies: number; management_load: number; morale: number; accepting: boolean; automation: number; function: string; ai_agents?: number
+  headcount: number; vacancies: number; management_load: number; morale: number; accepting: boolean; automation: number; function: string
+  ai_agents?: number; ai_incident?: boolean; ai_paused?: boolean; ai_coverage?: number; ai_exception_rate?: number; supervisors?: number
 }
-export interface Flow { item: string; from: string; to: string; kind: string; priority: number; transfer?: boolean }
+export interface Flow { item: string; from: string; to: string; kind: string; priority: number; transfer?: boolean; exception?: boolean; ai?: boolean }
 export interface InfoFlow { packet: string; from: string; to: string; kind: string }
 export interface Frame {
   month: number; label: string; employees: EmployeeRow[]; teams: TeamFrame[]; flows: Flow[]; info_flows: InfoFlow[]
