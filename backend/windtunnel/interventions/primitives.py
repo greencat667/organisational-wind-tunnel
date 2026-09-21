@@ -53,8 +53,11 @@ def apply_action(world: "World", emp: "Employee", d: "AgentDecision", cause: int
             helper = max((world.employees[m] for m in to_team.member_ids if world.employees[m].status == "active"),
                          key=lambda m: emp.relationships.get(m.id, 0.0), default=None)
             if helper:
-                emp.relationships[helper.id] = min(1.0, emp.relationships.get(helper.id, 0.0) + 0.25)
-                helper.relationships[emp.id] = min(1.0, helper.relationships.get(emp.id, 0.0) + 0.25)
+                cap = cfg.max_relationships_per_person
+                if helper.id in emp.relationships or len(emp.relationships) < cap:
+                    emp.relationships[helper.id] = min(1.0, emp.relationships.get(helper.id, 0.0) + 0.25)
+                if emp.id in helper.relationships or len(helper.relationships) < cap:
+                    helper.relationships[emp.id] = min(1.0, helper.relationships.get(emp.id, 0.0) + 0.25)
                 helper.help_given += 1
             emp.memory.append(MemoryTrace(world.month, "successful_collaboration", 0.2, 0.7))
             world.emit("work_transferred", emp.id, "seek_help", [team.id, tgt], {"items": len(queue_items)}, {"moved": moved},

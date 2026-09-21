@@ -204,7 +204,7 @@ def _archetype_traits(rng: random.Random, arche: str) -> dict[str, float]:
 
 
 def generate_organisation(template: str = "prototype", seed: int = 7, scale: float = 1.0,
-                          target_utilisation: float = 0.75):
+                          target_utilisation: float = 0.75, max_relationships: int = 150):
     """Return (departments, teams, employees, processes) — all plain dataclasses."""
     rng = random.Random(seed * 7919 + 17)
     dept_names, team_templates, process_templates = TEMPLATES[template]()
@@ -300,14 +300,36 @@ def generate_organisation(template: str = "prototype", seed: int = 7, scale: flo
     departments[exec_team.dept_id].head_id = ceo.id
     exec_team.manager_id = ceo.id
 
-    # informal relationships: within team (dense), across teams that share a process (sparse)
+    # informal relationships: within team (dense but capped), across teams that share a process (sparse).
+    # A person's relationship count is capped at `max_relationships` (Dunbar's number) regardless of team
+    # size — enumerating every pair would both let degree grow with team size and cost O(team_size^2), so
+    # each person instead samples up to a target number of distinct teammates directly.
     for t in teams.values():
-        for a in t.member_ids:
-            for b in t.member_ids:
-                if a < b and rng.random() < 0.45:
-                    w = round(rng.uniform(0.3, 0.8), 2)
-                    employees[a].relationships[b] = w
-                    employees[b].relationships[a] = w
+        members = t.member_ids
+        n = len(members)
+        # each side samples independently, so a pair ends up linked if EITHER samples the other —
+        # halving the original 0.45 pair-probability keeps the resulting average degree close to
+        # what the old all-pairs Bernoulli(0.45) model gave, instead of roughly doubling it
+        target_degree = min(round(0.225 * (n - 1)), max_relationships) if n > 1 else 0
+        for i, a in enumerate(members):
+            emp_a = employees[a]
+            if target_degree <= 0 or len(emp_a.relationships) >= max_relationships:
+                continue
+            k = min(target_degree, n - 1)
+            picked = 0
+            for j in rng.sample(range(n), min(k + 1, n)):
+                if j == i:
+                    continue
+                b = members[j]
+                emp_b = employees[b]
+                if b in emp_a.relationships or len(emp_a.relationships) >= max_relationships or len(emp_b.relationships) >= max_relationships:
+                    continue
+                w = round(rng.uniform(0.3, 0.8), 2)
+                emp_a.relationships[b] = w
+                emp_b.relationships[a] = w
+                picked += 1
+                if picked >= k:
+                    break
 
     # processes
     processes: dict[str, Process] = {}
@@ -327,9 +349,12 @@ def generate_organisation(template: str = "prototype", seed: int = 7, scale: flo
             for _ in range(max(1, round(2 * scale))):
                 a = rng.choice(teams[a_t].member_ids)
                 b = rng.choice(teams[b_t].member_ids)
+                emp_a, emp_b = employees[a], employees[b]
+                if len(emp_a.relationships) >= max_relationships or len(emp_b.relationships) >= max_relationships:
+                    continue
                 w = round(rng.uniform(0.2, 0.5), 2)
-                employees[a].relationships[b] = max(employees[a].relationships.get(b, 0), w)
-                employees[b].relationships[a] = max(employees[b].relationships.get(a, 0), w)
+                emp_a.relationships[b] = max(emp_a.relationships.get(b, 0), w)
+                emp_b.relationships[a] = max(emp_b.relationships.get(a, 0), w)
 
     calibrate_arrivals(teams, employees, processes, target_utilisation)
 

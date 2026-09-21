@@ -67,7 +67,8 @@ class World:
         self.decision_engine = decision_engine or HeuristicDecisionEngine()
         self._heuristic = HeuristicDecisionEngine()
         self.record_frames = record_frames
-        deps, teams, emps, procs = generate_organisation(template, seed, scale=scale, target_utilisation=self.config.target_utilisation)
+        deps, teams, emps, procs = generate_organisation(template, seed, scale=scale, target_utilisation=self.config.target_utilisation,
+                                                          max_relationships=self.config.max_relationships_per_person)
         for t in teams.values():
             t.ai_hours_per_agent = self.config.ai_hours_per_agent
             t.ai_monthly_cost_per_agent = self.config.ai_monthly_cost_per_agent

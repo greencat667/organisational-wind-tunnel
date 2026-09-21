@@ -40,6 +40,7 @@ class SimConfig:
     automation_implementation_hours_per_level: float = 400.0   # team hours needed per 100% automation level
     # organisation
     target_utilisation: float = 0.75           # slack preset: lean 0.85 · normal 0.75 · slack 0.65 (admin teams run ~12% hotter)
+    max_relationships_per_person: int = 150    # Dunbar's number: a hard cap on informal ties, independent of team size
     # AI agents (team defaults; per-team values may be overridden by change plans)
     ai_hours_per_agent: float = 120.0
     ai_monthly_cost_per_agent: float = 900.0
