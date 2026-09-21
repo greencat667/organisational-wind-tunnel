@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import heapq
 import math
 import random
 import time
@@ -605,13 +606,54 @@ class World:
         cap = {m.id: max(1.0, m.capacity_hours) for m in workers}
         by_id = {m.id: m for m in workers}
         approvals = 0.0
+
+        # Least-loaded-by-ratio selection used to rescan `workers` with min() on every chunk
+        # (O(items x chunks x team_size) per team per month). Instead, keep one lazy-deletion
+        # min-heap per distinct skill encountered this call, keyed by the same
+        # (load_ratio, -skill_level, id) tuple `min()` used, so picking drops to O(log team_size).
+        # `load[m]` only ever increases, so a heap entry's ratio can only match the worker's
+        # current true ratio if it is the most recently pushed one for that worker — any older
+        # entry is provably stale (its ratio is strictly lower) and safe to discard on sight.
+        heaps: dict[str, list[tuple[float, float, str]]] = {}
+        skill_ids: dict[str, set[str]] = {}   # skill -> ids of workers skilled (>=0.2) in it, built once per skill
+
+        def pool_for(skill: str) -> set[str]:
+            ids = skill_ids.get(skill)
+            if ids is None:
+                ids = {m.id for m in workers if m.skills.get(skill, 0.0) >= 0.2}
+                skill_ids[skill] = ids
+                # Seed with each worker's CURRENT ratio, not 0.0: a worker may already carry
+                # load from a different skill processed earlier this call (pools are built
+                # lazily, on first use of each skill) — seeding at 0.0 would leave that entry
+                # permanently stale (ratio can only increase) and eventually empty the heap.
+                heaps[skill] = [(load[mid] / cap[mid], -by_id[mid].skills.get(skill, 0.0), mid) for mid in ids]
+                heapq.heapify(heaps[skill])
+            return ids
+
+        def pop_min(skill: str) -> Employee:
+            heap = heaps[skill]
+            while True:
+                ratio, _neg_skill, mid = heap[0]
+                if ratio == load[mid] / cap[mid]:
+                    return by_id[mid]
+                heapq.heappop(heap)   # stale — this worker's load changed since this entry was pushed
+
+        def bump(m: Employee) -> None:
+            """Refresh m's entry in every already-built skill-heap it belongs to, not just the
+            one just used: a worker can qualify for more than one skill, and leaving their entry
+            in another skill's heap stale would eventually drop them from consideration there
+            even if they're the lightest-loaded person left."""
+            ratio = load[m.id] / cap[m.id]
+            for skill, ids in skill_ids.items():
+                if m.id in ids:
+                    heapq.heappush(heaps[skill], (ratio, -m.skills.get(skill, 0.0), m.id))
+
         for w in sorted(items, key=lambda w: (w.priority, w.created_month, w.id)):
             stage = self.processes[w.process_id].stages[w.stage_index]
             if stage.approval:
                 approvals += stage.hours_mean
                 continue
-            skilled = [m for m in workers if m.skills.get(stage.skill, 0.0) >= 0.2]
-            if not skilled:
+            if not pool_for(stage.skill):
                 continue
             keep = by_id.get(w.assignee_id) if (w.assignee_id and not balance and w.status == "in_progress") else None
             remaining = w.remaining_hours
@@ -620,10 +662,11 @@ class World:
                 if first and keep is not None and keep.skills.get(stage.skill, 0.0) >= 0.2:
                     m = keep
                 else:
-                    m = min(skilled, key=lambda m: (load[m.id] / cap[m.id], -m.skills.get(stage.skill, 0.0), m.id))
+                    m = pop_min(stage.skill)
                 rate = 0.55 + 0.45 * m.skills.get(stage.skill, 0.2)
                 chunk = min(remaining, max(4.0, 0.35 * cap[m.id] * rate))   # a big item is shared, in chunks
                 load[m.id] += chunk / rate
+                bump(m)
                 remaining -= chunk
                 if first:
                     w.assignee_id = m.id
