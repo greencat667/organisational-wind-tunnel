@@ -60,20 +60,34 @@ class FMServer:
         except Exception:
             return False
 
-    def responsive(self, timeout: float = 6.0) -> bool:
-        """The system model daemon is shared machine-wide and can be wedged by other callers; probe with a tiny request (cached 60 s)."""
+    def responsive(self, timeout: float = 8.0) -> bool:
+        """The system model daemon is shared machine-wide and can be wedged by other callers.
+
+        Guided JSON generation (``response_format: json_schema``) is the mode that actually
+        hangs in practice, even when a plain chat request answers fine — so the probe must
+        exercise a schema-guided request, not plain chat, or it reports "healthy" right before
+        a real call stalls for the full timeout. A positive result is cached briefly (60 s); a
+        negative one is cached much longer (300 s), since a stuck daemon costs a full timeout
+        to rediscover and tends to stay stuck rather than recover within seconds.
+        """
         now = time.time()
         cached = getattr(self, "_resp_cache", None)
-        if cached and now - cached[0] < 60:
-            return cached[1]
+        if cached:
+            ts, ok = cached
+            if now - ts < (60 if ok else 300):
+                return ok
         ok = self._probe(timeout)
         self._resp_cache = (now, ok)
         return ok
 
     def _probe(self, timeout: float) -> bool:
+        schema = {"title": "Probe", "type": "object", "properties": {"word": {"type": "string"}}, "required": ["word"]}
         try:
-            r = httpx.post(self.url() + "/v1/chat/completions", json={"model": "system", "stream": False,
-                           "messages": [{"role": "user", "content": "Reply with the single word: ready"}]}, timeout=timeout)
+            r = httpx.post(self.url() + "/v1/chat/completions", json={
+                "model": "system", "stream": False, "temperature": 0,
+                "messages": [{"role": "user", "content": 'Reply with JSON {"word": "ready"}'}],
+                "response_format": {"type": "json_schema", "json_schema": {"name": "Probe", "schema": schema}},
+            }, timeout=timeout)
             return r.status_code == 200
         except Exception:
             return False
