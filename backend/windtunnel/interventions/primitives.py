@@ -163,6 +163,7 @@ def apply_action(world: "World", emp: "Employee", d: "AgentDecision", cause: int
         old_team.member_ids.remove(emp.id)
         to_team.member_ids.append(emp.id)
         emp.team_id = tgt
+        world._clear_member_cache()
         emp.dept_id = to_team.dept_id
         emp.manager_id = to_team.manager_id
         emp.onboarding_months_left = 2
@@ -439,6 +440,7 @@ def apply_change(world: "World", change: dict[str, Any]) -> None:
             if eid == tb.manager_id:
                 e.is_manager = False   # one manager post removed (stays employed as senior officer)
             ta.member_ids.append(eid)
+        world._clear_member_cache()
         ta.queue.extend(tb.queue)
         for wid in tb.queue:
             if wid in world.work_items:
@@ -673,6 +675,7 @@ def apply_change(world: "World", change: dict[str, Any]) -> None:
 def _restructure_exit(world: "World", m: "Employee", causes: list[int]) -> None:
     team = world.teams[m.team_id]
     m.status = "left"
+    world._clear_member_cache()
     m.left_month = world.month
     m.current_behaviour = "left"
     for wid in m.active_tasks:

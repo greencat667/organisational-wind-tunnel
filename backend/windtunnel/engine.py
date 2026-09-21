@@ -102,6 +102,9 @@ class World:
         self._emp_seq = len(emps)
         self._flows: list[dict[str, Any]] = []      # work movements this month (for the renderer)
         self._info_flows: list[dict[str, Any]] = []
+        self._active_members_cache: dict[str, list[Employee]] = {}
+        # team.member_ids scanned once per team per invalidation instead of once per decision
+        # (invalidated by _clear_member_cache(), called at every hire/departure/team-move)
         self.timing: dict[str, float] = {}
         self.team_alias: dict[str, str] = {}        # merged/removed team -> receiving team
         self.baseline_metrics: Optional[dict[str, Any]] = None
@@ -162,7 +165,19 @@ class World:
         return ids[-limit:]
 
     def active_members(self, team: Team) -> list[Employee]:
-        return [self.employees[m] for m in team.member_ids if self.employees[m].status in ("active", "leaving")]
+        cached = self._active_members_cache.get(team.id)
+        if cached is not None:
+            return cached
+        result = [self.employees[m] for m in team.member_ids if self.employees[m].status in ("active", "leaving")]
+        self._active_members_cache[team.id] = result
+        return result
+
+    def _clear_member_cache(self) -> None:
+        """Call whenever a hire, departure, or move changes who's on a team.
+        Cheap (dict of a handful of teams) and correctness-critical: active_members()
+        trusts this cache completely, so anything that changes membership must clear
+        it before the next read, not just before the next month."""
+        self._active_members_cache.clear()
 
     def manager_load(self, mgr: Employee) -> float:
         team = self.teams.get(mgr.team_id)
@@ -385,6 +400,7 @@ class World:
     def _employee_leaves(self, e: Employee) -> None:
         team = self.teams[e.team_id]
         e.status = "left"
+        self._clear_member_cache()
         e.left_month = self.month
         e.current_behaviour = "left"
         # hand back work to the team queue
@@ -499,6 +515,7 @@ class World:
             e.skills["ai_supervision"] = round(0.3 + 0.4 * e.adaptability, 2)
         self.employees[eid] = e
         team.member_ids.append(eid)
+        self._clear_member_cache()
         self.layout["employees"][eid] = place_new_employee(self.layout, team.id, len(team.member_ids) - 1)
         self.departments[team.dept_id].spend_ytd += self.config.recruitment_cost
         team.spend_ytd += self.config.recruitment_cost
