@@ -95,8 +95,13 @@ class World:
         self.intervention_targets: set[str] = set()
         self.intervention_month: Optional[int] = None
         self.layout = compute_layout(deps, teams, emps)
-        self._team_events: dict[str, list[int]] = defaultdict(list)     # recent causal events per team
-        self._emp_events: dict[str, list[int]] = defaultdict(list)
+        # Recent causal events per team/employee, bucketed by kind: recent_team_causes/recent_emp_causes
+        # only ever look for a handful of specific kinds (state-changing / personal-cause), but by far
+        # the most frequent event kind emitted (e.g. employee_overloaded) is neither — so a flat per-team
+        # list would force every lookup to wade through that noise. Bucketing means a lookup only ever
+        # walks events of the kinds it actually asked for.
+        self._team_events: dict[str, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
+        self._emp_events: dict[str, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
         self._item_seq = 0
         self._packet_seq = 0
         self._vacancy_seq = 0
@@ -144,26 +149,46 @@ class World:
         self.events.append(ev)
         for ent in entities:
             if ent in self.teams:
-                self._team_events[ent].append(ev.id)
+                self._team_events[ent][kind].append(ev.id)
             elif ent in self.employees:
-                self._emp_events[ent].append(ev.id)
+                self._emp_events[ent][kind].append(ev.id)
         if self.intervention_root is not None and kind in SYSTEMIC_KINDS:
             ev.emergent = not any(e in self.intervention_targets for e in entities)
         return ev
+
+    def _recent_causes(self, buckets: dict[str, list[int]], months: int, limit: int, kinds: set) -> list[int]:
+        """Shared by recent_team_causes/recent_emp_causes. `buckets` holds this team/employee's events
+        pre-sorted into per-kind lists, each append-only in chronological order (event ids only ever
+        increase). Only the kinds actually being asked for are walked, and each is walked backwards
+        and cut off the moment an event falls outside the month window — every earlier entry in that
+        kind's list is older still. By far the most frequent event kind (employee_overloaded) is
+        neither state-changing nor a personal cause, so this never has to wade through it: scanning a
+        team or employee's *entire* history of every kind used to dominate simulation time once enough
+        months had accumulated events (found by profiling at 10,000 employees)."""
+        cutoff = self.month - months
+        matches: list[int] = []
+        for kind in kinds:
+            ids = buckets.get(kind)
+            if not ids:
+                continue
+            for i in reversed(ids):
+                if self.events[i].month < cutoff:
+                    break
+                matches.append(i)
+        matches.sort()   # event id increases monotonically with time -> chronological order
+        return matches[-limit:]
 
     def recent_team_causes(self, team_id: str, months: int = 3, limit: int = 6, kinds: Optional[set] = None) -> list[int]:
         """Recent events on a team that could plausibly have moved its state. By default only *state-changing* kinds
         (staffing, capacity, transfers, agents, incidents, demand) count — never routine decisions."""
         kinds = STATE_CHANGING_KINDS if kinds is None else kinds
-        ids = [i for i in self._team_events.get(team_id, []) if self.events[i].month >= self.month - months and self.events[i].kind in kinds]
-        return ids[-limit:]
+        return self._recent_causes(self._team_events.get(team_id, {}), months, limit, kinds)
 
     def recent_emp_causes(self, emp_id: str, months: int = 4, limit: int = 5, kinds: Optional[set] = None) -> list[int]:
         """Recent events that happened *to* this person (overload, escalation ignored, absence, role change…), not their
         routine decisions."""
         kinds = PERSONAL_CAUSE_KINDS if kinds is None else kinds
-        ids = [i for i in self._emp_events.get(emp_id, []) if self.events[i].month >= self.month - months and self.events[i].kind in kinds]
-        return ids[-limit:]
+        return self._recent_causes(self._emp_events.get(emp_id, {}), months, limit, kinds)
 
     def active_members(self, team: Team) -> list[Employee]:
         cached = self._active_members_cache.get(team.id)
@@ -946,8 +971,47 @@ class World:
             avail = {m.id: m.capacity_hours for m in members}   # capacity already includes any overtime decided this month
             mgmt_avail = t.management_capacity_hours
             by_id = {m.id: m for m in members}
+            idx = {m.id: i for i, m in enumerate(members)}   # tie-break matching members' fixed order (was: stable sort of a filtered copy of this same list)
             for m in members:
                 m.active_tasks = []
+
+            # Picking "most spare hours, then most skilled" used to rebuild and sort a fresh
+            # `skilled` list from scratch for every item (O(team_size log team_size) each,
+            # cProfile showed this dominating a month's time at scale). One lazy-deletion
+            # min-heap per distinct skill replaces that: `avail[m]` only ever decreases here,
+            # so a heap entry's cached avail can only match the worker's current avail if it's
+            # the most recently pushed one for that worker — any other is provably stale.
+            skill_ids: dict[str, set[str]] = {}
+            heaps: dict[str, list[tuple[float, float, int, str]]] = {}
+
+            def pool_for(skill: str) -> set[str]:
+                ids = skill_ids.get(skill)
+                if ids is None:
+                    ids = {m.id for m in members if m.skills.get(skill, 0.0) >= 0.2}
+                    skill_ids[skill] = ids
+                    heaps[skill] = [(-avail[mid], -by_id[mid].skills.get(skill, 0.0), idx[mid], mid) for mid in ids]
+                    heapq.heapify(heaps[skill])
+                return ids
+
+            def pop_best(skill: str) -> Optional[Employee]:
+                heap = heaps[skill]
+                while heap:
+                    neg_avail, _neg_skill, _i, mid = heap[0]
+                    cur = avail[mid]
+                    if cur <= 0.05:
+                        heapq.heappop(heap)   # avail only decreases: permanently ineligible from here on
+                        continue
+                    if -neg_avail == cur:
+                        return by_id[mid]
+                    heapq.heappop(heap)       # stale — this worker's avail changed since this entry was pushed
+                return None
+
+            def bump(m: "Employee") -> None:
+                """Refresh m's entry in every already-built skill-heap it belongs to, not just the
+                one just used, so a stale entry elsewhere doesn't drop them from consideration there."""
+                for skill, ids in skill_ids.items():
+                    if m.id in ids:
+                        heapq.heappush(heaps[skill], (-avail[m.id], -m.skills.get(skill, 0.0), idx[m.id], m.id))
             queue = [self.work_items[i] for i in t.queue if i in self.work_items and self.work_items[i].status in ("queued", "in_progress")]
             queue.sort(key=lambda w: (w.priority, w.created_month, w.id))
             still: list[str] = []
@@ -990,16 +1054,11 @@ class World:
                         still.append(w.id)
                     continue
                 # skill match
-                skilled = [m for m in members if avail[m.id] > 0.05 and m.skills.get(stage.skill, 0.0) >= 0.2]
-                if not skilled:
-                    still.append(w.id)
-                    continue
-                # planned assignee first (personal ownership), then colleagues with the most spare hours
-                skilled.sort(key=lambda m: (m.id != w.assignee_id, -avail[m.id], -m.skills.get(stage.skill, 0.0)))
-                for m in skilled:
-                    if w.remaining_hours <= 0.01:
-                        break
-                    prof = m.skills.get(stage.skill, 0.2)
+                skill = stage.skill
+                pool_ids = pool_for(skill)
+
+                def take(m: "Employee") -> None:
+                    prof = m.skills.get(skill, 0.2)
                     rate = 0.55 + 0.45 * prof             # low proficiency = slower
                     can_do_hours = avail[m.id] * rate
                     done = min(w.remaining_hours, can_do_hours)
@@ -1013,7 +1072,25 @@ class World:
                         m.active_tasks.append(w.id)
                     # learning by doing
                     if prof < 0.95 and self._r("learn", f"{m.id}:{w.id}") < 0.05:
-                        m.skills[stage.skill] = round(min(0.95, prof + 0.02), 2)
+                        m.skills[skill] = round(min(0.95, prof + 0.02), 2)
+                    bump(m)
+
+                picked_any = False
+                if pool_ids:
+                    # planned assignee first (personal ownership), then colleagues with the most spare hours
+                    assignee = by_id.get(w.assignee_id) if w.assignee_id else None
+                    if assignee is not None and assignee.id in pool_ids and avail[assignee.id] > 0.05:
+                        take(assignee)
+                        picked_any = True
+                    while w.remaining_hours > 0.01:
+                        m = pop_best(skill)
+                        if m is None:
+                            break
+                        take(m)
+                        picked_any = True
+                if not picked_any:
+                    still.append(w.id)
+                    continue
                 if w.remaining_hours <= 0.01:
                     assignee = self.employees.get(w.assignee_id) if w.assignee_id else None
                     if assignee and self._error_occurs(assignee, w):
