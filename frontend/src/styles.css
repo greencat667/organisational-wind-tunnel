@@ -47,13 +47,18 @@ button { cursor: pointer; }
 .bottom { left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; gap: 10px; padding: 0 22px 18px;
   background: linear-gradient(0deg, rgba(7,9,15,0.95) 40%, rgba(7,9,15,0)); }
 .metrics { display: flex; gap: 8px; }
-.metric { flex: 1; background: var(--panel); border: 1px solid var(--panel-border); border-radius: 8px; padding: 8px 12px; min-width: 0; backdrop-filter: blur(8px); position: relative; overflow: hidden; }
+.metric { flex: 1; background: var(--panel); border: 1px solid var(--panel-border); border-radius: 8px; padding: 8px 12px; min-width: 0; backdrop-filter: blur(8px); display: flex; flex-direction: column; overflow: hidden; }
 .metric .k { font-size: 10px; letter-spacing: 0.18em; color: var(--text-dim); text-transform: uppercase; }
-.metric .v { font-family: var(--mono); font-size: 17px; margin-top: 3px; display: flex; gap: 10px; align-items: baseline; }
+.metric .v { font-family: var(--mono); font-size: 17px; margin-top: 3px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
 .metric .v .b { color: var(--baseline); }
 .metric .v .i { color: var(--intervention); }
 .metric .d { font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
-.metric svg { position: absolute; right: 0; bottom: 0; opacity: 0.9; }
+/* svg (the sparkline) used to be position:absolute, bottom:0 regardless of how tall .k/.v/.d actually
+   rendered — fine normally, but .v can wrap to two lines for metrics whose formatted value repeats a
+   unit for both baseline and intervention (e.g. "0.03 mo" + "0.30 mo"), and the delta text below it
+   would then overlap the fixed-position sparkline. margin-top: auto in this flex column reserves
+   whatever space .k/.v/.d actually need first and only pushes the sparkline down with the remainder. */
+.metric svg { margin-top: auto; align-self: flex-end; opacity: 0.9; }
 .prompt { display: flex; gap: 10px; align-items: stretch; }
 .prompt input { flex: 1; background: rgba(12,16,26,0.85); border: 1px solid var(--panel-border); color: var(--text); padding: 12px 16px; border-radius: 8px; font-size: 14px; outline: none; }
 .prompt input:focus { border-color: rgba(111,211,255,0.5); }
