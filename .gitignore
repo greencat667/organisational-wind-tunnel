@@ -11,3 +11,4 @@ working/
 *.log
 data/
 frontend/test-results/
+log.md
