@@ -60,6 +60,9 @@ class Store:
     # -------------------------------------------------------------------- runs
     def save_run(self, world, experiment_id: str, run_id: str, model_versions: dict[str, Any]) -> None:
         c = self.conn
+        # re-saving a run replaces it wholesale: stale rows past the new end month must not survive
+        for table in ("metrics", "events", "decisions", "snapshots"):
+            c.execute(f"DELETE FROM {table} WHERE run_id=?", (run_id,))
         c.execute("INSERT OR REPLACE INTO runs VALUES (?,?,?,?,?,?,?,?,?)",
                   (run_id, experiment_id, world.label, world.seed, getattr(world.decision_engine, "name", "?"), world.month, time.time(),
                    json.dumps(model_versions), json.dumps(world.metrics_history[-1] if world.metrics_history else {})))

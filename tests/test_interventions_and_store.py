@@ -32,8 +32,10 @@ def test_flat_afm_output_validates():
 
 def test_invalid_plan_rejected():
     import pytest
+    # an empty plan is valid (it carries the parser's warnings) but has nothing to run; /api/run refuses it
+    assert validate_plan({"intervention_type": "restructure", "changes": []}).changes == []
     with pytest.raises(Exception):
-        validate_plan({"intervention_type": "restructure", "changes": []})
+        validate_plan({"intervention_type": "restructure", "changes": [{"operation": "shock", "kind": "alien_invasion", "amount": 0.1}]})
     with pytest.raises(Exception):
         validate_plan({"intervention_type": "restructure", "changes": [{"operation": "reduce_capacity", "amount": 250}]})
 

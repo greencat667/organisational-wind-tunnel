@@ -8,7 +8,8 @@ from pydantic import BaseModel, Field, field_validator
 
 Operation = Literal["reduce_capacity", "increase_capacity", "merge_teams", "remove_management_layer", "change_budget",
                     "change_demand", "enable_automation", "change_working_hours", "change_reporting", "remove_approval",
-                    "add_approval", "shock", "deploy_ai_agents", "convert_to_supervisory", "ai_run_process"]
+                    "add_approval", "shock", "deploy_ai_agents", "convert_to_supervisory", "ai_run_process", "freeze_hiring"]
+SHOCK_KINDS = ("funding_cut", "funding_increase", "demand_spike", "staff_shortage", "supplier_failure")
 InterventionType = Literal["restructure", "headcount", "budget", "automation", "demand", "process", "shock", "structure"]
 
 
@@ -27,27 +28,36 @@ class Change(BaseModel):
     replace_leavers: Optional[bool] = None   # deploy_ai_agents: False = attrition-based downsizing
     delegate_approvals: Optional[bool] = None  # ai_run_process
     lag_months: Optional[int] = None         # AI ops: implementation lag
+    count: Optional[int] = Field(default=None, ge=1, le=10000)  # reduce/increase_capacity: absolute posts, overrides amount
 
     @field_validator("amount")
     @classmethod
     def _bound(cls, v):
+        # Amounts are always fractions (0.2 = 20%). Percent-scale numbers from the model arrive as amount_percent and are
+        # converted in validate_plan; silently rescaling here turned "demand +150%" (1.5) into +1.5%.
         if v is None:
             return v
-        if abs(v) > 1.0 and abs(v) <= 100:   # model gave a percentage
-            v = v / 100.0
-        if abs(v) > 1.0:
-            raise ValueError("amount must be a fraction between -1 and 1")
+        if v < -1.0 or v > 3.0:
+            raise ValueError("amount must be a fraction between -1 and 3 (0.2 = 20%)")
         return round(v, 4)
+
+    @field_validator("kind")
+    @classmethod
+    def _shock_kind(cls, v):
+        if v is not None and v not in SHOCK_KINDS:
+            raise ValueError(f"unknown shock kind {v!r}; expected one of {', '.join(SHOCK_KINDS)}")
+        return v
 
 
 class ChangePlan(BaseModel):
     intervention_type: InterventionType
     summary: str = Field(default="", max_length=200)
     objectives: list[str] = Field(default_factory=list, max_length=6)
-    changes: list[Change] = Field(min_length=1, max_length=6)
+    changes: list[Change] = Field(default_factory=list, max_length=6)   # empty = nothing understood; /api/run refuses it
     protected_groups: list[str] = Field(default_factory=list, max_length=6)
     transition_period_months: int = Field(default=1, ge=1, le=36)
     source: str = "rules"          # apple_fm | rules | user
+    warnings: list[str] = Field(default_factory=list, max_length=12)   # what the parser couldn't read or had to adjust
 
     @field_validator("objectives", "protected_groups", mode="before")
     @classmethod
@@ -123,14 +133,19 @@ def validate_plan(data: dict) -> ChangePlan:
         op = c.get("operation")
         if op in ("reduce_capacity", "increase_capacity", "enable_automation", "deploy_ai_agents", "convert_to_supervisory", "ai_run_process") and amt is not None:
             amt = abs(amt)
-        if op in ("change_budget", "change_working_hours") and amt is not None and amt > 0 and any(w in str(data.get("summary", "")).lower() for w in ("cut", "reduce", "fall", "decrease", "save")):
-            amt = -amt
-        if op == "change_demand" and amt is not None and amt > 0 and any(w in str(data.get("summary", "")).lower() for w in ("fall", "reduce", "decrease", "drop")):
-            amt = -amt
+        # The model sometimes reports a cut as a positive percentage. Only correct that for model output with a single
+        # change of this kind; the rule parser already decides the sign per clause.
+        if data.get("source") == "apple_fm" and amt is not None and amt > 0 and sum(1 for x in data.get("changes", []) if x.get("operation") == op) == 1:
+            summ = str(data.get("summary", "")).lower()
+            if op in ("change_budget", "change_working_hours") and re.search(r"\b(cut|reduc\w*|fall|decreas\w*|sav\w*|shorter|four-day)\b", summ):
+                amt = -amt
+            if op == "change_demand" and re.search(r"\b(fall\w*|reduc\w*|decreas\w*|drop\w*)\b", summ):
+                amt = -amt
         changes.append(Change(operation=op, target=c.get("target") or "all", amount=amt, teams=c.get("teams") or None,
                               kind=c.get("kind") or None, autonomy_gain=c.get("autonomy_gain"), processes=c.get("processes") or c.get("process_names"),
                               process=c.get("process"), team=c.get("team"), reports_to_team=c.get("reports_to_team"), name=c.get("name"),
-                              replace_leavers=c.get("replace_leavers"), delegate_approvals=c.get("delegate_approvals"), lag_months=c.get("lag_months")))
+                              replace_leavers=c.get("replace_leavers"), delegate_approvals=c.get("delegate_approvals"), lag_months=c.get("lag_months"), count=c.get("count")))
     return ChangePlan(intervention_type=data.get("intervention_type", "restructure"), summary=data.get("summary", "")[:200],
                       objectives=data.get("objectives", []), changes=changes, protected_groups=data.get("protected_groups", []),
-                      transition_period_months=max(1, min(36, int(data.get("transition_period_months") or 1))), source=data.get("source", "rules"))
+                      transition_period_months=max(1, min(36, int(data.get("transition_period_months") or 1))), source=data.get("source", "rules"),
+                      warnings=[str(w)[:300] for w in (data.get("warnings") or [])][:12])

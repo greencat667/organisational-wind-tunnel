@@ -19,7 +19,10 @@ only if `handles_urgent`. Agents go live after an implementation lag (3–4 mont
 
 **Supervision.** Agents need human supervision: 12 h per agent per month at supervision skill 0, falling to 6 h at
 skill 1. Supervisors (converted or retrained officers) cover it first, up to 90% of their time; other officers cover the
-remainder with at most 25% of theirs. *Coverage* = hours covered / hours needed. Agents only deliver `capacity × coverage`
+remainder with at most 25% of theirs — falling to nothing as the team's workload rises from 0.8 to 1.4, because checking
+agents' output is the first thing to slip under a queue. *Coverage* = hours covered / hours needed. With agents alone
+the work they take off people usually leaves time to supervise them; the gap appears when adoption is combined with
+pressure (e.g. agents plus a 25% admin cut: coverage <90% for 1–30 months across seeds). Agents only deliver `capacity × coverage`
 and, unsupervised, they **drift**: exception rate × (1 + 0.8·(1 − coverage)).
 
 **Exceptions.** Each AI-handled item fails with the current exception rate and returns to humans at half the stage hours

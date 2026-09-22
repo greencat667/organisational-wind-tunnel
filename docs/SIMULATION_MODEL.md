@@ -26,23 +26,38 @@ All parameters live in `backend/windtunnel/config.py` (`SimConfig`) and `orggen.
   the skilled member with the lowest load ratio, sticky for items already in progress; items bigger than ~35% of a
   person's month are shared in chunks. **Personal workload = allocated hours / own capacity**, so overload concentrates on
   individuals, key people emerge, and managers' `redistribute_work` rebalances the allocation before offloading to neighbours.
+  Nobody is planned more than `max_allocation_ratio` (2.0) months of work in a month — the rest waits in the team queue —
+  so personal workload measures this month's load, not the size of the backlog. Work the team's AI agents are expected to
+  take is reserved first and never planned onto people.
 * **Queueing.** Processing follows the allocation: the owner works first, colleagues with spare hours help. Any member with
   the stage skill ≥0.2 can work an item; speed = 0.55 + 0.45 × proficiency. If nobody has the skill the item stalls.
-  Priority-3 items more than 3 months past deadline are *dropped* (counted as lost work).
-* **Errors.** P(error) = 0.02 + 0.08·max(0, stress−0.55) + 0.05·max(0, workload−1.1) + 0.04 if onboarding + 0.06 if
-  cutting corners + 0.05 if the approval was bypassed. An error sends 40% of the stage hours back as rework.
+  Priority-3 items more than 3 months past deadline are *dropped* (counted as lost work), whether queued or half-done.
+  `delay_low_priority` only moves items to the back of the queue; it never moves deadlines. An item whose next stage is
+  on the same team stays in that team's queue (an earlier bug silently dropped ~23% of frontline work this way).
+* **Helping.** A neighbouring team (shared process) with workload <0.9 can take items if it provides the skill or any
+  active member has it at ≥0.3; transferred items without the exact team skill take 25% longer.
+* **Errors.** P(error) = 0.02 + 0.08·max(0, stress−0.55) + 0.05·max(0, min(workload, 2)−1.1) + 0.04 if onboarding +
+  0.06 if cutting corners + 0.05 if the approval was bypassed, capped at `max_error_probability` (0.25). An error sends
+  40% of the stage hours back as rework. (Uncapped, a deep queue drove error rates towards 0.85 and a rework spiral.)
 * **Approvals** need a manager (or a grade ≥5 senior, or team autonomy ≥0.75 for self-approval) with spare management
   hours; otherwise the item waits and `approvals_waiting` grows. Workarounds skip the approval stage at higher error risk.
 
 ## Capacity (organisational physics)
-* 150 contracted hours/month; 92% productive. Managers spend 15 h + 3 h per direct report on management (capped at 80%);
-  directors 60%; seniors (grade ≥5) 8 h approving. Effective hours × effectiveness, where effectiveness =
+* 150 contracted hours/month; 92% productive. A manager's management time is sized for the team the role was designed
+  for (15 h + 3 h per designed report, plus a calibrated approval allowance; capped at 80%) and doesn't shrink when
+  reports leave. Line management itself needs 6 h + 1.5 h per *current* report; the rest is approval/decision time, so
+  losing officers frees approval time and growing past the design squeezes it. Directors spend 60%; seniors (grade ≥5)
+  8 h approving. **Management load** = (line management + approvals done or waiting + escalations) ÷ all management
+  time — no fixed offset. Calibration sizes each team's approval allowance so its approvals run at ~80% of the time left
+  after line management (the old calibration sized only work stages, so Finance's approvals alone exceeded its
+  management time and it read "overloaded" before any intervention). Effective hours × effectiveness, where effectiveness =
   onboarding ramp (0.4→1 over 4 months) × (1 − 0.2·max(0, stress−0.65)) × (0.85 + 0.15·morale) × effort level.
 * **Absence:** monthly probability 0.02–0.05 baseline + 0.10·max(0, stress−0.6); duration 10–100% of the month.
 * **Overtime:** only via a decision; ≤20 h/month; paid at 1.25× when the manager has approved it; raises stress.
 * **Recruitment:** vacancies open only if the department is not frozen and salary spend ×1.05 < budget; lead time
   3 months (+1–2 if the HR-capable team is overloaded); recruitment creates a real people-case work item; new hires
-  onboard for 4 months. Restructured teams have hiring frozen for 6 months.
+  onboard for 4 months. Restructured teams have hiring frozen for 6 months. A leaver who can't be replaced because of a
+  freeze or budget is remembered as a blocked backfill and the vacancy opens once the block lifts.
 * **Budget:** team budget = pay × 1.18. Departments freeze hiring when projected annual spend > budget (hysteresis 0.97).
 * **Automation / AI agents:** see [AI_SCENARIOS.md](AI_SCENARIOS.md) — agent pools with supervision coverage, learning, drift,
   exceptions, silent errors surfacing downstream, incidents, skill atrophy, attrition-based downsizing, delegated approvals.
@@ -87,5 +102,8 @@ admin teams run ~12% hotter than the target. A utilisation sweep of the admin cu
 stay stable; at 0.85, none do and median backlog reaches 2.3 months — the intervention's outcome depends on slack more than
 on anything else in the model.
 
-## Measured baseline behaviour (prototype, heuristic engine, 36 months, seeds 7/11/23)
-backlog 0.04 months, worst team 0.19–0.37, delivery 0.75–0.78, turnover 6–8/year, mean personal workload 0.74–0.81 — stable.
+## Measured baseline behaviour (prototype, heuristic engine, 36 months, seeds 5/7/11/23/42)
+Re-measured 2026-09-23 after the lost-work and management-time fixes: backlog 0.07–0.17 months, delivery 0.97–1.04 (the
+old 0.75–0.78 was the lost-work bug, not the organisation), turnover 7–9/year, mean personal workload 0.77–0.93,
+management load 0.41–0.49 (every team <1.0), cooperation (items passed to neighbouring teams) 90–160 over the run, no
+orphaned work items — stable.

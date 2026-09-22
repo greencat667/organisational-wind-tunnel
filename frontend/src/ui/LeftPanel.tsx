@@ -7,7 +7,14 @@ export function LeftPanel() {
   const panel = useStore((s) => s.panel)
   const set = useStore((s) => s.set)
   const status = useStore((s) => s.status)
+  const [collapsed, setCollapsed] = useState(false)
   const tabs: [string, string][] = [['events', 'Timeline'], ['effects', 'Effects'], ['batch', 'Many worlds'], ['saved', 'Saved']]
+  // Collapsing gives the 3D world (especially the split view's left-hand baseline) the full width back.
+  if (collapsed) return (
+    <div className="overlay side left collapsed">
+      <button className="btn sm" title="Show panel" onClick={() => setCollapsed(false)}>☰ {tabs.find(([k]) => k === panel)?.[1] || 'Timeline'}</button>
+    </div>
+  )
   return (
     <div className="overlay side left">
       <div className="panel" style={{ flex: 1 }}>
@@ -15,6 +22,7 @@ export function LeftPanel() {
           <span style={{ display: 'flex', gap: 4 }}>
             {tabs.map(([k, l]) => <button key={k} className={`btn sm ${panel === k || (panel === 'inspector' && k === 'events') || (panel === 'network' && k === 'events') ? 'active' : 'ghost'}`} onClick={() => set({ panel: k as any })}>{l}</button>)}
           </span>
+          <button className="btn sm ghost" title="Hide panel" onClick={() => setCollapsed(true)}>‹</button>
         </h3>
         {(panel === 'events' || panel === 'inspector' || panel === 'network') && <Timeline />}
         {panel === 'effects' && (status?.forked ? <Effects /> : <div className="muted">Run an intervention to compare against the baseline.</div>)}
@@ -53,29 +61,29 @@ export function Effects() {
   const load = async () => { setBusy(true); try { setRep(await api('/effects?min_effect=0.5')) } finally { setBusy(false) } }
   useEffect(() => { load() }, [month])
   if (!rep) return <div className="muted">{busy ? 'analysing…' : '—'}</div>
-  const groups: Record<string, any[]> = { first: [], second: [], third: [] }
+  const groups: Record<string, any[]> = { first: [], second: [], third: [], organisation: [] }
   for (const e of rep.effects) groups[e.order_label]?.push(e)
   return (
     <div>
-      <div className="muted" style={{ marginBottom: 8 }}>Variables that diverged from the baseline (same seed, same luck). Orders are causal distance from the intervention, not judgements.</div>
+      <div className="muted" style={{ marginBottom: 8 }}>Variables that diverged from the baseline (same seed, same luck): baseline → intervention, last 12 months. Orders are causal distance from the intervention, not judgements.</div>
       {rep.emergence?.length > 0 && (
         <>
           <h4>Emergent effects</h4>
           {rep.emergence.map((e: any, i: number) => (
-            <button key={i} className="list-btn" onClick={() => e.event_id != null && set({ whyEvent: e.event_id, panel: 'inspector' })}>
+            <button key={i} className="list-btn" onClick={() => e.event_id != null && set({ whyEvent: e.event_id })}>
               {e.label}<span className="tag">emergent</span>
               <span className="sub">{fmt(e.value)} vs baseline {fmt(e.baseline)}</span>
             </button>
           ))}
         </>
       )}
-      {(['first', 'second', 'third'] as const).map((o) => groups[o].length ? (
+      {(['first', 'second', 'third', 'organisation'] as const).map((o) => groups[o].length ? (
         <div key={o}>
-          <h4>{o} order <span className="muted">({groups[o].length})</span></h4>
+          <h4>{o === 'organisation' ? 'organisation-wide' : `${o} order`} <span className="muted">({groups[o].length})</span></h4>
           {groups[o].slice(0, 10).map((e: any, i: number) => (
-            <button key={i} className="list-btn" onClick={() => { if (e.event_id != null) set({ whyEvent: e.event_id, panel: 'inspector' }); if (e.team) set({ selection: { kind: 'team', id: e.team, world: 'intervention' } }) }}>
-              {e.team_name} · {e.metric.replace(/_/g, ' ')}{e.emergent && <span className="tag">emergent</span>}
-              <span className="sub">{fmt(e.baseline_final)} → {fmt(e.intervention_final)} · effect {e.effect_size > 0 ? '+' : ''}{e.effect_size}{e.lag_months != null ? ` · after ${e.lag_months} mo` : ''}</span>
+            <button key={i} className="list-btn" onClick={() => set({ whyEvent: e.event_id ?? null, selection: e.team ? { kind: 'team', id: e.team, world: 'intervention' } : null })}>
+              {o === 'organisation' ? '' : `${e.team_name} · `}{e.metric.replace(/_/g, ' ')}{e.emergent && <span className="tag">emergent</span>}
+              <span className="sub" title={`standardised effect ${e.effect_size} (difference ÷ the baseline's own month-to-month spread)`}>{fmt(e.baseline_final)} → {fmt(e.intervention_final)} · {e.strength ?? 'effect'} {e.effect_size > 0 ? '↑' : '↓'}{e.lag_months != null ? ` · after ${e.lag_months} mo` : ''}</span>
             </button>
           ))}
         </div>

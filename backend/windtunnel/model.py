@@ -124,7 +124,12 @@ class Team:
     errors_this_month: int = 0
     morale: float = 0.7
     stress: float = 0.2
-    management_capacity_hours: float = 0.0
+    management_capacity_hours: float = 0.0   # hours available for approvals and decisions (after line management)
+    management_budget_hours: float = 0.0     # all management time: line management + approvals (drives management_load)
+    line_management_hours: float = 0.0       # hours line management itself needs this month (1:1s, supervision, people issues)
+    approval_allowance_hours: float = 0.0    # extra manager hours for approvals, sized by calibration to the team's approval volume
+    manager_span_design: int = 0             # team size the manager role was sized for (fixed at start; set by merges)
+    blocked_backfills: list = field(default_factory=list)   # (role, grade, cause event) leavers not replaced during a freeze/budget block
     management_load: float = 0.0
     approvals_waiting: int = 0
     turnover_12m: int = 0
@@ -150,6 +155,7 @@ class Team:
     ai_incident: bool = False               # incident this month (agents unavailable)
     ai_incidents_total: int = 0
     ai_supervision_coverage: float = 1.0    # supervision hours available / needed (computed)
+    ai_supervision_used_hours: float = 0.0  # human hours spent supervising agents this month
     ai_items_this_month: int = 0
     replace_leavers: bool = True            # False = attrition-based downsizing (posts not backfilled while AI covers the work)
     programme_expandable: bool = False      # managers may expand the agent pool
@@ -228,6 +234,7 @@ class WorkItem:
     ai_exception: bool = False    # bounced back to humans by AI
     ai_silent_error: bool = False # carries a hidden AI defect that will surface at the next stage
     ai_approved: bool = False     # approval delegated to AI
+    rng_key: str = ""             # stable common-random-numbers key (process, month, arrival index) — see World._wkey
 
 
 @dataclass

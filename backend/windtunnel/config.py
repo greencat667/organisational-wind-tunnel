@@ -12,6 +12,8 @@ class SimConfig:
     productive_fraction: float = 0.92          # share of contracted hours available for work items
     manager_base_hours: float = 15.0           # management hours a manager spends regardless of span
     manager_hours_per_report: float = 3.0
+    manager_line_base_hours: float = 6.0       # of a manager's management time, what line management needs regardless of span…
+    manager_line_hours_per_report: float = 1.5 # …plus this per report; the rest of the budget is approval/decision time
     approval_hours: float = 1.0                # management hours consumed per approval stage
     max_overtime_hours: float = 20.0
     overtime_cost_multiplier: float = 1.25
@@ -21,6 +23,8 @@ class SimConfig:
     onboarding_start_productivity: float = 0.4
     max_items_per_process_month: int = 60      # high-volume processes are bundled into batch items
     low_priority_expiry_months: int = 3        # low-priority items this long past deadline are dropped (counted as lost work)
+    max_allocation_ratio: float = 2.0          # at most ~2 months of work is planned onto one person in a month; the rest waits in the team queue
+    max_error_probability: float = 0.25        # ceiling on the per-stage error (rework) probability, however stretched the person
     max_arrival_total_multiplier: float = 3.0  # safety: cap arrivals relative to calibrated demand
     # psychology
     stress_adapt: float = 0.35
@@ -46,6 +50,7 @@ class SimConfig:
     ai_hours_per_agent: float = 120.0
     ai_monthly_cost_per_agent: float = 900.0
     ai_supervision_hours: float = 12.0
+    ai_officer_supervision_share: float = 0.25  # most of an officer's time that can go on checking agents (falls to 0 as team workload goes 0.8 → 1.4)
     ai_base_exception_rate: float = 0.16
     ai_silent_error_rate: float = 0.04
     ai_incident_probability: float = 0.03      # monthly P(outage/regression) per team with live agents
