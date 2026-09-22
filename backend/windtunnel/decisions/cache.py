@@ -56,6 +56,10 @@ class CachedDecisionEngine(AgentDecisionEngine):
             d = AgentDecision(**{**hit.__dict__})
             d.cached = True
             d.latency_ms = 0.0
+            # targets are team ids and aren't part of the key, so a cached target may belong to someone else's
+            # situation (an Operations agent told to seek help from Operations): keep it only if it's valid here
+            if d.target is not None and d.target not in request.action_targets.get(d.action, []):
+                d.target = (request.action_targets.get(d.action) or [None])[0]
             return d
         self.misses += 1
         d = self.inner.decide(request)

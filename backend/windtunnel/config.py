@@ -21,6 +21,8 @@ class SimConfig:
     onboarding_start_productivity: float = 0.4
     max_items_per_process_month: int = 60      # high-volume processes are bundled into batch items
     low_priority_expiry_months: int = 3        # low-priority items this long past deadline are dropped (counted as lost work)
+    max_allocation_ratio: float = 2.0          # at most ~2 months of work is planned onto one person in a month; the rest waits in the team queue
+    max_error_probability: float = 0.25        # ceiling on the per-stage error (rework) probability, however stretched the person
     max_arrival_total_multiplier: float = 3.0  # safety: cap arrivals relative to calibrated demand
     # psychology
     stress_adapt: float = 0.35

@@ -150,6 +150,7 @@ class Team:
     ai_incident: bool = False               # incident this month (agents unavailable)
     ai_incidents_total: int = 0
     ai_supervision_coverage: float = 1.0    # supervision hours available / needed (computed)
+    ai_supervision_used_hours: float = 0.0  # human hours spent supervising agents this month
     ai_items_this_month: int = 0
     replace_leavers: bool = True            # False = attrition-based downsizing (posts not backfilled while AI covers the work)
     programme_expandable: bool = False      # managers may expand the agent pool
@@ -228,6 +229,7 @@ class WorkItem:
     ai_exception: bool = False    # bounced back to humans by AI
     ai_silent_error: bool = False # carries a hidden AI defect that will surface at the next stage
     ai_approved: bool = False     # approval delegated to AI
+    rng_key: str = ""             # stable common-random-numbers key (process, month, arrival index) — see World._wkey
 
 
 @dataclass

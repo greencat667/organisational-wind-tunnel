@@ -26,11 +26,19 @@ All parameters live in `backend/windtunnel/config.py` (`SimConfig`) and `orggen.
   the skilled member with the lowest load ratio, sticky for items already in progress; items bigger than ~35% of a
   person's month are shared in chunks. **Personal workload = allocated hours / own capacity**, so overload concentrates on
   individuals, key people emerge, and managers' `redistribute_work` rebalances the allocation before offloading to neighbours.
+  Nobody is planned more than `max_allocation_ratio` (2.0) months of work in a month — the rest waits in the team queue —
+  so personal workload measures this month's load, not the size of the backlog. Work the team's AI agents are expected to
+  take is reserved first and never planned onto people.
 * **Queueing.** Processing follows the allocation: the owner works first, colleagues with spare hours help. Any member with
   the stage skill ≥0.2 can work an item; speed = 0.55 + 0.45 × proficiency. If nobody has the skill the item stalls.
-  Priority-3 items more than 3 months past deadline are *dropped* (counted as lost work).
-* **Errors.** P(error) = 0.02 + 0.08·max(0, stress−0.55) + 0.05·max(0, workload−1.1) + 0.04 if onboarding + 0.06 if
-  cutting corners + 0.05 if the approval was bypassed. An error sends 40% of the stage hours back as rework.
+  Priority-3 items more than 3 months past deadline are *dropped* (counted as lost work), whether queued or half-done.
+  `delay_low_priority` only moves items to the back of the queue; it never moves deadlines. An item whose next stage is
+  on the same team stays in that team's queue (an earlier bug silently dropped ~23% of frontline work this way).
+* **Helping.** A neighbouring team (shared process) with workload <0.9 can take items if it provides the skill or any
+  active member has it at ≥0.3; transferred items without the exact team skill take 25% longer.
+* **Errors.** P(error) = 0.02 + 0.08·max(0, stress−0.55) + 0.05·max(0, min(workload, 2)−1.1) + 0.04 if onboarding +
+  0.06 if cutting corners + 0.05 if the approval was bypassed, capped at `max_error_probability` (0.25). An error sends
+  40% of the stage hours back as rework. (Uncapped, a deep queue drove error rates towards 0.85 and a rework spiral.)
 * **Approvals** need a manager (or a grade ≥5 senior, or team autonomy ≥0.75 for self-approval) with spare management
   hours; otherwise the item waits and `approvals_waiting` grows. Workarounds skip the approval stage at higher error risk.
 
@@ -87,5 +95,7 @@ admin teams run ~12% hotter than the target. A utilisation sweep of the admin cu
 stay stable; at 0.85, none do and median backlog reaches 2.3 months — the intervention's outcome depends on slack more than
 on anything else in the model.
 
-## Measured baseline behaviour (prototype, heuristic engine, 36 months, seeds 7/11/23)
-backlog 0.04 months, worst team 0.19–0.37, delivery 0.75–0.78, turnover 6–8/year, mean personal workload 0.74–0.81 — stable.
+## Measured baseline behaviour (prototype, heuristic engine, 36 months, seeds 5/7/11/23/42)
+Re-measured 2026-09-22 after the lost-work fix: backlog 0.07–0.26 months, delivery 0.99–1.03 (the old 0.75–0.78 was the
+lost-work bug, not the organisation), turnover 7–9/year, mean personal workload 0.76–1.05, cooperation (items passed to
+neighbouring teams) 130–195 over the run, no orphaned work items — stable.

@@ -66,7 +66,9 @@ def why(events: list[Event], event_id: int, max_depth: int = 8, max_nodes: int =
     chain = []
     cur = by_id[event_id]
     seen = set()
-    while cur and cur.id not in seen and len(chain) < max_depth * 4:
+    # Walk until the intervention or a dead end. (A 32-step cap used to stop long chains — e.g. many same-month rework
+    # loops — before they reached the intervention, so the story never connected back to the change.)
+    while cur and cur.id not in seen and len(chain) < 1000:
         seen.add(cur.id)
         chain.append({"id": cur.id, "month": cur.month, "kind": cur.kind, "description": cur.description, "emergent": cur.emergent})
         cands = [by_id[c] for c in cur.causes if c in by_id]
@@ -81,17 +83,23 @@ def why(events: list[Event], event_id: int, max_depth: int = 8, max_nodes: int =
             break
         cands.sort(key=lambda e: (orders.get(e.id, 10**6), e.kind == "decision", not e.significant, -e.month))
         cur = cands[0]
-    # keep the story readable: drop consecutive same-kind routine events (e.g. repeated redistributions), keep ends
-    compact = []
+    # keep the story readable: fold runs of the same kind of event (rework → rework → rework…) into one step with a count
+    compact: list[dict] = []
     for c in chain:
-        if compact and c["kind"] == compact[-1]["kind"] and c["kind"] in ("decision", "work_redistributed", "workaround", "escalation", "employee_overloaded", "work_transferred"):
+        if compact and c["kind"] == compact[-1]["kind"] and c["kind"] != "intervention":
+            compact[-1]["repeats"] = compact[-1].get("repeats", 1) + 1
             continue
         compact.append(c)
-    if len(compact) > max_depth:
-        compact = compact[: max_depth - 3] + compact[-3:]
-    chain = compact
-    chain.reverse()
-    return {"nodes": list(nodes.values()), "edges": edges, "chain": chain}
+    chain = list(reversed(compact))      # root first
+    if len(chain) > max_depth + 2:
+        # always keep the root end (how it started) and the effect end (what you clicked); summarise the middle
+        head, tail = chain[:3], chain[-(max_depth - 3):]
+        hidden = chain[3:len(chain) - len(tail)]
+        gap = {"id": -1, "month": hidden[0]["month"], "kind": "gap", "emergent": False,
+               "description": f"… {sum(h.get('repeats', 1) for h in hidden)} intermediate steps ({', '.join(dict.fromkeys(h['kind'].replace('_', ' ') for h in hidden[:6]))})"}
+        chain = head + [gap] + tail
+    reaches_root = bool(chain) and chain[0]["kind"] == "intervention"
+    return {"nodes": list(nodes.values()), "edges": edges, "chain": chain, "reaches_intervention": reaches_root}
 
 
 # ----------------------------------------------------------------------------- divergence
@@ -118,18 +126,22 @@ def divergence(base_hist: list[dict], int_hist: list[dict], intervention_month: 
         b = _series(base_hist[:n], key, team)
         x = _series(int_hist[:n], key, team)
         pre = b[: intervention_month + 1]
-        sd = _sd(pre) if len(pre) > 2 else 0.0
-        floor = 1.0 if key in _COUNT_METRICS else (0.05 if key in _RATIO_METRICS else max(0.1 * abs(_mean(pre)), 1e-3))
-        scale = max(sd, floor, 0.1 * abs(_mean(pre)))
         post_b = b[intervention_month + 1:]
         post_x = x[intervention_month + 1:]
+        # Scale by the baseline's own month-to-month spread over the SAME post-intervention months (the handful of settle
+        # months before the fork are nearly flat, so their SD left the fixed floor to set the unit and effects saturated).
+        sd = max(_sd(pre) if len(pre) > 2 else 0.0, _sd(post_b[-12:]) if len(post_b) > 2 else 0.0)
+        floor = 1.0 if key in _COUNT_METRICS else (0.05 if key in _RATIO_METRICS else max(0.1 * abs(_mean(pre)), 1e-3))
+        scale = max(sd, floor, 0.1 * abs(_mean(pre)))
         diffs = [xi - bi for bi, xi in zip(post_b, post_x)]
         if not diffs:
             continue
         tail = diffs[-12:]
         effect = _mean(tail) / scale
         rel = (_mean(post_x[-12:]) - _mean(post_b[-12:])) / max(abs(_mean(post_b[-12:])), floor)
-        if abs(effect) < min_effect and abs(rel) < 0.1:
+        # both must be material: a large standardised effect on a tiny absolute move (information reach 0.078 → 0.088)
+        # or a big relative change on noise is not worth reporting
+        if abs(effect) < min_effect or abs(rel) < 0.05:
             continue
         # onset: first month where |diff| exceeds scale for 3 consecutive months
         onset = None
@@ -137,8 +149,10 @@ def divergence(base_hist: list[dict], int_hist: list[dict], intervention_month: 
             if all(abs(diffs[j]) > scale for j in range(i, i + 3)):
                 onset = intervention_month + 1 + i
                 break
-        effect = max(-20.0, min(20.0, effect))   # capped: beyond this the size is not informative
-        out.append({"metric": key, "team": team, "effect_size": round(effect, 2), "relative_change": round(rel, 3),
+        a = abs(effect)
+        strength = "very strong" if a >= 8 else "strong" if a >= 3 else "moderate" if a >= 1 else "weak"
+        out.append({"metric": key, "team": team, "effect_size": round(effect, 2), "strength": strength, "relative_change": round(rel, 3),
+                    "change": round(_mean(post_x[-12:]) - _mean(post_b[-12:]), 3),
                     "baseline_final": round(_mean(post_b[-12:]), 3), "intervention_final": round(_mean(post_x[-12:]), 3),
                     "onset_month": onset, "lag_months": (onset - intervention_month) if onset is not None else None})
     # rank by relative change (floored so zero baselines do not dominate), effect size as tie-break
@@ -195,22 +209,49 @@ def classify_effects(world_int, world_base, min_effect: float = 0.25) -> dict[st
     targets = {t for t in world_int.intervention_targets if t in world_int.teams}
     dist = org_distance(world_int, targets)
     orders = causal_orders(world_int.events, world_int.intervention_root)
+    div = _drop_org_duplicates(div)
     for d in div:
         team = d["team"]
-        if team is None:
-            gd = None
-        else:
-            gd = dist.get(team)
+        gd = dist.get(team) if team is not None else None
         d["graph_distance"] = gd
         d["direct_target"] = team in targets if team else False
-        # link to the latest significant event about this team/metric for "why"
-        ev = _latest_event_for(world_int, team, d["metric"])
+        # link to a significant event about this team/metric, after the change, that traces back to it — for "why"
+        ev = _latest_event_for(world_int, team, d["metric"], after_month=im, reachable=orders)
         d["event_id"] = ev.id if ev else None
         d["causal_order"] = orders.get(ev.id) if ev else None
-        d["order_label"] = _order_label(d)
-        d["emergent"] = not d["direct_target"]
+        if team is None:
+            # organisation-wide aggregates are summaries of team effects, not a further causal step: they are neither
+            # "third order" nor emergent in themselves
+            d["order_label"] = "organisation"
+            d["emergent"] = None
+        else:
+            d["order_label"] = _order_label(d)
+            d["emergent"] = not d["direct_target"]
         d["team_name"] = world_int.teams[team].name if team in world_int.teams else ("organisation" if team is None else team)
     return {"effects": div, "targets": sorted(targets), "graph_distance": dist, "intervention_month": im}
+
+
+# organisation metric -> the team metric it sums
+_ORG_SUMS = {"queue_items": "queue", "approvals_waiting": "approvals_waiting", "errors": "errors", "dropped": "dropped",
+             "vacancies": "vacancies", "headcount": "headcount", "turnover_12m": "turnover_12m", "supervisors": "supervisors",
+             "downstream_ai_errors": "downstream_ai_errors", "cooperation": "transfers_in"}
+
+
+def _drop_org_duplicates(div: list[dict]) -> list[dict]:
+    """An organisation-wide row that one team explains (≥80% of the change) just repeats that team's row: drop it."""
+    team_rows = defaultdict(dict)
+    for d in div:
+        if d["team"] is not None:
+            team_rows[d["metric"]][d["team"]] = d
+    out = []
+    for d in div:
+        tm = _ORG_SUMS.get(d["metric"]) if d["team"] is None else None
+        if tm and team_rows.get(tm) and abs(d["change"]) > 1e-9:
+            biggest = max(team_rows[tm].values(), key=lambda r: abs(r["change"]))
+            if biggest["change"] * d["change"] > 0 and abs(biggest["change"]) >= 0.8 * abs(d["change"]):
+                continue
+        out.append(d)
+    return out
 
 
 def _order_label(d: dict) -> str:
@@ -247,17 +288,24 @@ _METRIC_EVENT_KINDS = {
 }
 
 
-def _latest_event_for(world, team: Optional[str], metric: str) -> Optional[Event]:
+def _latest_event_for(world, team: Optional[str], metric: str, after_month: int = -1,
+                      reachable: Optional[dict[int, int]] = None) -> Optional[Event]:
     """The event to explain a metric divergence with: kinds are tried in priority order (threshold crossings first),
-    latest occurrence of the first kind that exists."""
+    latest occurrence of the first kind that exists. Only events after the intervention count (a pre-fork event can't
+    explain an intervention effect); among those, ones causally reachable from the intervention are preferred."""
     kinds = _METRIC_EVENT_KINDS.get(metric, ["backlog_threshold", "employee_left", "work_transferred"])
-    for kind in kinds:
+
+    def ok(ev: Event) -> bool:
+        return ev.month >= after_month and (team is None or team in ev.entities) and ev.id != world.intervention_root
+
+    for need_reach in ((True, False) if reachable else (False,)):
+        for kind in kinds:
+            for ev in reversed(world.events):
+                if ev.kind == kind and ok(ev) and (not need_reach or ev.id in reachable):
+                    return ev
         for ev in reversed(world.events):
-            if ev.kind == kind and (team is None or team in ev.entities) and ev.id != world.intervention_root:
+            if ev.significant and ok(ev) and (not need_reach or ev.id in reachable):
                 return ev
-    for ev in reversed(world.events):
-        if ev.significant and (team is None or team in ev.entities):
-            return ev
     return None
 
 

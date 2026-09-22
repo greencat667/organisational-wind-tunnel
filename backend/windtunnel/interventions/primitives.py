@@ -9,7 +9,7 @@ invented, money cannot be spent twice, terminated employees do nothing.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from ..model import MemoryTrace, WorkItem
 
@@ -62,8 +62,14 @@ def apply_action(world: "World", emp: "Employee", d: "AgentDecision", cause: int
                     helper.relationships[emp.id] = min(1.0, helper.relationships.get(emp.id, 0.0) + 0.25)
                 helper.help_given += 1
             emp.memory.append(MemoryTrace(world.month, "successful_collaboration", 0.2, 0.7))
+            # only a *new* help channel is timeline-worthy; routine repeats of an established one would flood it
+            channels = world.__dict__.setdefault("_help_channels", {})
+            last = channels.get((team.id, tgt))
+            channels[(team.id, tgt)] = world.month
+            new_channel = last is None or world.month - last > 6
             world.emit("work_transferred", emp.id, "seek_help", [team.id, tgt], {"items": len(queue_items)}, {"moved": moved},
-                       [cause], f"{emp.name} passed {moved} {'item' if moved == 1 else 'items'} from {team.name} to {to_team.name}", significant=moved >= 3)
+                       [cause], f"{emp.name} passed {moved} {'item' if moved == 1 else 'items'} from {team.name} to {to_team.name}"
+                       + (" (a new help channel)" if new_channel else ""), significant=moved >= 3 and new_channel)
         return
 
     if a == "work_overtime":
@@ -76,17 +82,14 @@ def apply_action(world: "World", emp: "Employee", d: "AgentDecision", cause: int
         return
 
     if a == "delay_low_priority":
+        # Low-priority items go to the back of the queue (the `delayed` count is a sort key). Their deadline and creation
+        # month are left alone: pushing the deadline each time meant nothing ever expired, and resetting created_month
+        # corrupted cycle times and double-counted arrivals in the delivery metric.
         n = 0
         for w in queue_items:
             if w.priority == 3:
-                w.deadline_month += 1
                 w.delayed += 1
-                w.priority = 3
                 n += 1
-        # low-priority items move to the back by bumping created_month ordering key
-        for w in queue_items:
-            if w.priority == 3:
-                w.created_month = max(w.created_month, world.month)
         if n:
             world.emit("work_delayed", emp.id, "delay_low_priority", [team.id], {}, {"items": n}, [cause],
                        f"{emp.name} delayed {n} low-priority items in {team.name}")
@@ -435,9 +438,12 @@ def apply_change(world: "World", change: dict[str, Any]) -> None:
         return
 
     if op == "merge_teams":
-        a, b = change["teams"][0], change["teams"][1]
+        names = change.get("teams") or []
+        a, b = (resolve_team_name(world, names[0]), resolve_team_name(world, names[1])) if len(names) >= 2 else (None, None)
         ta, tb = world.teams.get(a), world.teams.get(b)
-        if not ta or not tb:
+        if not ta or not tb or a == b:
+            world.emit("intervention_skipped", "intervention", "merge_teams", [], {}, {"teams": names}, causes,
+                       f"Merge skipped: couldn't find two distinct teams for {' and '.join(map(str, names)) or 'the request'}", significant=True)
             return
         new_name = change.get("name") or f"{ta.name} & {tb.name}"
         for eid in tb.member_ids:
@@ -640,6 +646,15 @@ def apply_change(world: "World", change: dict[str, Any]) -> None:
                        f"{t.name} now reports into {world.teams[new_mgr_team].name}", significant=True)
         return
 
+    if op == "freeze_hiring":
+        for tid in targets:
+            world.teams[tid].hiring_frozen = True
+            world.intervention_targets.add(tid)
+        if targets:
+            world.emit("hiring_frozen", "intervention", "freeze_hiring", targets, {}, {"teams": len(targets)}, causes,
+                       f"Hiring frozen in {', '.join(world.teams[t].name for t in targets[:4])}{' …' if len(targets) > 4 else ''}", significant=True)
+        return
+
     if op == "remove_approval":
         pid = change.get("process")
         if pid in world.processes:
@@ -666,6 +681,11 @@ def apply_change(world: "World", change: dict[str, Any]) -> None:
                 t.budget_annual *= (1 - amt)
             for d in world.departments.values():
                 d.budget_annual *= (1 - amt)
+        elif kind == "funding_increase":
+            for t in world.teams.values():
+                t.budget_annual *= (1 + amt)
+            for d in world.departments.values():
+                d.budget_annual *= (1 + amt)
         elif kind == "demand_spike":
             world.global_demand *= (1 + amt)
         elif kind == "staff_shortage":
@@ -687,7 +707,9 @@ def _restructure_exit(world: "World", m: "Employee", causes: list[int]) -> None:
     m.current_behaviour = "left"
     for wid in m.active_tasks:
         w = world.work_items.get(wid)
-        if w:
+        # only hand back work still in progress here: active_tasks can also hold items that have since finished or moved
+        # on, and resetting those to "queued" resurrected them outside every queue
+        if w and w.status == "in_progress" and w.team_id == team.id:
             w.status = "queued"; w.assignee_id = None
     m.active_tasks = []
     world.leavers_by_month[world.month] += 0  # restructure exits are not voluntary turnover
@@ -718,7 +740,48 @@ def resolve_targets(world: "World", target: Any) -> list[str]:
     if by_dept:
         return by_dept
     by_name = [t.id for t in world.teams.values() if tl in t.name.lower()]
-    return by_name
+    if by_name:
+        return by_name
+    # a specific group this organisation doesn't have as its own team ("hr" in the 100-person template) → its function
+    umbrella = {"finance": "admin", "business support": "admin", "procurement": "admin", "hr": "admin", "people": "admin",
+                "fundraising": "income", "comms": "income", "communications": "income", "campaigns": "frontline"}.get(tl)
+    return resolve_targets(world, umbrella) if umbrella else []
+
+
+def resolve_team_name(world: "World", name: Any) -> Optional[str]:
+    """One team id for a name as a person would write it ("comms", "business support", "Programme Delivery")."""
+    if name in world.teams:
+        return name
+    nl = str(name or "").lower().strip()
+    if not nl:
+        return None
+    alias = {"comms": "communications", "hr": "people", "it": "technology", "tech": "technology", "programmes": "programme",
+             "ops": "operations", "exec": "executive"}
+    for cand in (nl, alias.get(nl, nl)):
+        exact = [t.id for t in world.teams.values() if t.name.lower() == cand or t.id == cand]
+        if exact:
+            return exact[0]
+        part = [t.id for t in world.teams.values() if cand in t.name.lower() or t.name.lower() in cand]
+        if len(part) == 1:
+            return part[0]
+    return None
+
+
+def count_to_fraction(world: "World", ch: Any) -> Optional[float]:
+    """An absolute post count ("hire 10 people", "cut 5 posts") as the equivalent fraction of the target teams."""
+    count = ch.get("count") if isinstance(ch, dict) else getattr(ch, "count", None)
+    op = ch.get("operation", ch.get("op")) if isinstance(ch, dict) else ch.operation
+    if not count:
+        return None
+    tids = [t for t in resolve_targets(world, ch.get("target") if isinstance(ch, dict) else ch.target)
+            if not (op == "reduce_capacity" and world.teams[t].protected)]
+    if op == "reduce_capacity":
+        base = sum(max(0, len([m for m in world.active_members(world.teams[t]) if m.status == "active"]) - 1) for t in tids)
+    else:
+        base = sum(len(world.teams[t].member_ids) for t in tids)
+    if base <= 0:
+        return None
+    return min(0.6 if op == "reduce_capacity" else 3.0, count / base)
 
 
 def schedule_plan(world: "World", plan: "ChangePlan") -> int:
@@ -735,6 +798,10 @@ def schedule_plan(world: "World", plan: "ChangePlan") -> int:
             world.teams[tid].protected = True
     for ch in plan.changes:
         d = ch.model_dump()
+        frac = count_to_fraction(world, ch)
+        if frac is not None:
+            ch = ch.model_copy(update={"amount": round(frac, 4)})
+            d["amount"] = ch.amount
         additive = ch.operation in ("reduce_capacity", "change_budget", "change_working_hours", "increase_capacity", "deploy_ai_agents",
                                     "ai_run_process", "enable_automation", "convert_to_supervisory")
         multiplicative = ch.operation == "change_demand"
@@ -757,14 +824,28 @@ def describe_plan(world: "World", plan: "ChangePlan") -> list[str]:
     for ch in plan.changes:
         tids = resolve_targets(world, ch.target)
         names = ", ".join(world.teams[t].name for t in tids[:6]) + (" …" if len(tids) > 6 else "")
+        frac = count_to_fraction(world, ch)
+        if frac is not None:
+            ch = ch.model_copy(update={"amount": frac})
         if ch.operation == "reduce_capacity":
+            tids = [t for t in tids if not world.teams[t].protected and t not in _protected_ids(world, plan)]
+            names = ", ".join(world.teams[t].name for t in tids[:6]) + (" …" if len(tids) > 6 else "")
             n = sum(int(round((len(world.active_members(world.teams[t])) - 1) * (ch.amount or 0))) for t in tids)
             lines.append(f"Remove {n} posts ({int((ch.amount or 0)*100)}%) from: {names}")
         elif ch.operation == "increase_capacity":
             n = sum(max(1, int(round(len(world.teams[t].member_ids) * (ch.amount or 0)))) for t in tids)
             lines.append(f"Recruit {n} posts (+{int((ch.amount or 0)*100)}%) into: {names}")
         elif ch.operation == "merge_teams":
-            lines.append("Merge teams: " + " + ".join(world.teams[t].name for t in (ch.teams or []) if t in world.teams))
+            ids = [resolve_team_name(world, n) for n in (ch.teams or [])]
+            if len(ids) >= 2 and all(ids) and ids[0] != ids[1]:
+                lines.append(f"Merge {world.teams[ids[1]].name} into {world.teams[ids[0]].name} (one manager post removed)")
+            else:
+                lines.append(f"⚠ Merge can't run: no two distinct teams match {' / '.join(ch.teams or []) or 'the request'}")
+        elif ch.operation == "freeze_hiring":
+            lines.append(f"Freeze hiring (leavers not replaced) in: {names}")
+        elif ch.operation == "remove_approval":
+            p = world.processes.get(ch.process or "")
+            lines.append(f"Remove the approval step from {p.name}" if p else f"⚠ No process called {ch.process!r}")
         elif ch.operation == "remove_management_layer":
             lines.append(f"Remove director layer; team leads report to the chief executive; team autonomy +{int((ch.autonomy_gain or 0.3)*100)}%")
         elif ch.operation == "change_budget":
@@ -794,14 +875,20 @@ def describe_plan(world: "World", plan: "ChangePlan") -> list[str]:
             lines.append("Approvals " + ("delegated to AI for non-urgent items" if ch.delegate_approvals else "stay with human managers") + f"; live in {ch.lag_months or 4} months; exceptions return to staff")
         else:
             lines.append(f"{ch.operation} → {names or ch.target}")
+    if not plan.changes:
+        lines.append("Nothing to run — no supported change was recognised.")
     if plan.protected_groups:
         prot = []
         for pg in plan.protected_groups:
             prot += [world.teams[t].name for t in resolve_targets(world, pg)]
         lines.append("Protected: " + ", ".join(dict.fromkeys(prot)))
-    lines.append(f"Transition: {plan.transition_period_months} months")
+    lines.append(f"Transition: {plan.transition_period_months} month{'' if plan.transition_period_months == 1 else 's'}")
     lines.append("No other assumptions added.")
     return lines
+
+
+def _protected_ids(world: "World", plan: "ChangePlan") -> set[str]:
+    return {t for pg in plan.protected_groups for t in resolve_targets(world, pg)}
 
 
 def _deployment_work(world: "World", team, agents: float, lag: int, tech) -> None:

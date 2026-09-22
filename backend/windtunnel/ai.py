@@ -18,7 +18,7 @@ these are the rules from which outcomes emerge:
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from .model import MemoryTrace, Team, WorkItem
 
@@ -59,6 +59,7 @@ def apply_capacity(world: "World", team: Team, members, cap: float) -> float:
     team.ai_exceptions_this_month = 0
     team.verify_hours_this_month = 0.0
     if team.ai_agents <= 0 or not members:
+        team.ai_supervision_used_hours = 0.0
         team.ai_capacity_hours = 0.0
         team.ai_supervision_coverage = 1.0
         return cap
@@ -92,6 +93,7 @@ def apply_capacity(world: "World", team: Team, members, cap: float) -> float:
             m.capacity_hours -= take * share
         covered += take
     cap -= covered
+    team.ai_supervision_used_hours = covered
     team.ai_supervision_coverage = min(1.0, covered / need) if need > 0 else 1.0
     # effective exception rate: learning down, drift up, incident up
     months_live = (world.month - team.ai_live_month) if team.ai_live_month is not None else 0
@@ -106,10 +108,16 @@ def apply_capacity(world: "World", team: Team, members, cap: float) -> float:
     return max(0.0, cap)
 
 
-def eligible(team: Team, w: WorkItem, stage, process) -> bool:
+def ai_run_case(world: "World", w: WorkItem, process) -> bool:
+    """Is this case one of the share an AI-run process handles end to end? One fixed draw per case (month pinned), so the
+    same cases stay AI-run at every stage — 10% and 80% used to behave identically because every case qualified."""
+    return process.ai_run_share > 0 and world._r("ai_run", world._wkey(w), month=0) < process.ai_run_share
+
+
+def eligible(team: Team, w: WorkItem, stage, process, world: Optional["World"] = None) -> bool:
     if stage.approval:
         return False
-    if process.ai_run_share > 0:
+    if process.ai_run_share > 0 and world is not None and ai_run_case(world, w, process):
         return True
     if stage.routine < team.ai_routine_threshold:
         return False
@@ -123,13 +131,13 @@ def handle_item(world: "World", team: Team, w: WorkItem, stage) -> str:
     team.ai_items_this_month += 1
     w.ai_handled = True
     silent_p = team.ai_silent_error_rate * (1.0 + (1.0 - team.ai_supervision_coverage)) * (0.5 if team.verify_hours_this_month > 0 else 1.0)
-    if world._r("ai_exception", w.id) < team.ai_exception_rate:
+    if world._r("ai_exception", world._wkey(w)) < team.ai_exception_rate:
         team.ai_exceptions_this_month += 1
         w.ai_exception = True
         w.remaining_hours = w.stage_hours * 0.5
         w.ai_handled = False
         return "exception"
-    if world._r("ai_silent", w.id) < silent_p:
+    if world._r("ai_silent", world._wkey(w)) < silent_p:
         w.ai_silent_error = True
     w.remaining_hours = 0.0
     return "done"
@@ -139,8 +147,14 @@ def approval_by_ai(world: "World", team: Team, w: WorkItem, process) -> bool:
     """Delegated approval: AI approves non-urgent items of an AI-run process."""
     if not process.ai_delegated_approvals or w.priority == 1 or team.ai_incident:
         return False
+    if not ai_run_case(world, w, process):
+        return False
+    # the approving agents must actually be live (not still deploying, paused or down after an incident)
+    if not any(world.teams[world.resolve_team(s.team_id)].ai_capacity_hours > 0 for s in process.stages
+               if world.resolve_team(s.team_id) in world.teams):
+        return False
     w.ai_approved = True
-    if world._r("ai_approve_err", w.id) < 2.0 * team.ai_silent_error_rate:
+    if world._r("ai_approve_err", world._wkey(w)) < 2.0 * team.ai_silent_error_rate:
         w.ai_silent_error = True
     return True
 

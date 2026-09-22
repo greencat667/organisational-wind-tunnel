@@ -253,7 +253,7 @@ def generate_organisation(template: str = "prototype", seed: int = 7, scale: flo
                 skills[s] = round(rng.uniform(0.35, 0.75), 2)
             # a smattering of cross-functional secondary skills
             if rng.random() < 0.35:
-                other = rng.choice(["admin", "finance", "comms", "tech", "programme", "operations", "hr", "data"])
+                other = rng.choice(["admin", "finance", "comms", "tech", "programme", "operations", "hr", "data", "procurement", "reporting", "logistics", "donor_care", "delivery", "design"])
                 skills.setdefault(other, round(rng.uniform(0.2, 0.5), 2))
             if is_manager:
                 skills["management"] = round(rng.uniform(0.5, 0.9), 2)

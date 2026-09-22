@@ -26,11 +26,14 @@ export function InterpretModal() {
         ) : (
           <textarea value={json} onChange={(e) => setJson(e.target.value)} />
         )}
+        {!editing && it.plan?.warnings?.length > 0 && (
+          <div className="warnings">{it.plan.warnings.map((w: string, i: number) => <div key={i}>⚠ {w}</div>)}</div>
+        )}
         {err && <div style={{ color: 'var(--danger)', fontSize: 12 }}>{err}</div>}
         <div className="actions">
           <button className="btn ghost" onClick={() => set({ interpret: null })}>CANCEL</button>
           <button className="btn" onClick={() => { setEditing(!editing); set({ interpret: { ...it, edited: true, pending: false } }) }}>{editing ? 'VIEW' : 'EDIT'}</button>
-          <button className="btn primary" onClick={run}>RUN EXPERIMENT</button>
+          <button className="btn primary" disabled={!editing && !it.plan?.changes?.length} title={!editing && !it.plan?.changes?.length ? 'Nothing was understood — edit the text or the plan' : undefined} onClick={run}>RUN EXPERIMENT</button>
         </div>
       </div>
     </div>

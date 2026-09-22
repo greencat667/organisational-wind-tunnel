@@ -27,7 +27,11 @@ from .model import to_dict
 from .store import Store
 
 app = FastAPI(title="Organisational Wind Tunnel", version="0.1.0")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+# Only the local UI may call the API from a browser. A wildcard here let any web page open in the same browser drive
+# the simulator (and read its data) through the user's localhost.
+_UI_PORT = os.environ.get("WINDTUNNEL_UI_PORT", "5180")
+ALLOWED_ORIGINS = [f"http://127.0.0.1:{_UI_PORT}", f"http://localhost:{_UI_PORT}"]
+app.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS, allow_methods=["*"], allow_headers=["*"])
 
 SCENARIOS = [
     {"id": "admin_cut", "name": "Admin cut", "text": "Reduce administrative capacity by 20% while maintaining existing frontline delivery."},
@@ -53,6 +57,7 @@ class Experiment:
         self.seed = seed
         self.engine_name = engine_name
         self.settle = months_settle
+        self.scale = scale
         self.engine = self._make_engine(engine_name)
         if config is None:
             cfg = SimConfig()
@@ -127,8 +132,11 @@ class Experiment:
         cfg = SimConfig(**{k: v for k, v in (saved.get("config") or {}).items() if k in SimConfig.__dataclass_fields__})
         runs = {r["label"]: r for r in store.list_runs(exp_id)}
         base_dec = store.load_run_decisions(runs["baseline"]["id"]) if "baseline" in runs else []
-        exp = cls(saved["template"], saved["seed"], live_engine, months_settle=0, config=cfg)
-        exp.id = exp_id
+        scale = float((saved.get("config") or {}).get("_scale", 1.0))
+        exp = cls(saved["template"], saved["seed"], live_engine, months_settle=0, config=cfg, scale=scale)
+        # A pure reload keeps the id; a fork from an earlier month is a new experiment, so saving it can never
+        # overwrite (and leave stale rows in) the run it was forked from.
+        exp.id = exp_id if up_to_month is None else uuid.uuid4().hex[:10]
         exp.baseline.decision_engine = RecordedDecisionEngine(base_dec, source_engine=saved["engine"])
         target = saved.get("months", 0) if up_to_month is None else min(up_to_month, saved.get("months", 0))
         fork_month = saved.get("fork_month")
@@ -155,7 +163,7 @@ class Experiment:
                 "playing": self.playing, "speed": self.speed, "headcount": len([e for e in self.baseline.employees.values() if e.status == "active"]),
                 "mean_step_ms": round(1000 * sum(self.step_times) / len(self.step_times), 1) if self.step_times else None,
                 "utilisation": self.baseline.config.target_utilisation, "decisions_per_month": self.baseline.config.max_decisions_per_month,
-                "replayed_from": getattr(self, "replayed_from", None),
+                "replayed_from": getattr(self, "replayed_from", None), "last_error": getattr(self, "last_error", None),
                 "agreement": {w.label: w.agreement_report() for w in self.worlds()} if self.engine_name != "heuristic" else None}
 
 
@@ -197,7 +205,13 @@ class Hub:
                 await self.broadcast({"type": "status", "status": exp.status()})
                 continue
             t0 = time.perf_counter()
-            out = await asyncio.to_thread(exp.step)
+            try:
+                out = await asyncio.to_thread(exp.step)
+            except Exception as exc:   # never let one bad step kill the loop for the rest of the session
+                exp.playing = False
+                exp.last_error = f"step failed at month {exp.baseline.month}: {exc!r}"[:300]
+                await self.broadcast({"type": "status", "status": exp.status()})
+                continue
             await self.broadcast({"type": "frame", **out})
             dt = time.perf_counter() - t0
             wait = max(0.0, (1.0 / exp.speed) - dt) if exp.speed < 1000 else 0.0
@@ -266,6 +280,11 @@ def scenarios():
 @app.get("/api/experiment")
 def get_experiment():
     exp = hub.ensure_experiment()
+    with exp.lock:
+        return _experiment_payload(exp)
+
+
+def _experiment_payload(exp: "Experiment") -> dict[str, Any]:
     return {"status": exp.status(), "structure": exp.baseline.structure(),
             "frames": {w.label: w.frames for w in exp.worlds()},
             "metrics": {w.label: w.metrics_history for w in exp.worlds()},
@@ -316,9 +335,11 @@ async def run(req: RunRequest):
         plan = validate_plan(req.plan)
     except Exception as exc:
         raise HTTPException(400, f"invalid plan: {exc}")
+    if not plan.changes:
+        raise HTTPException(400, "nothing to run: the plan has no changes")
     exp.fork(plan, req.text)
     hub.store.save_experiment({"id": exp.id, "template": exp.template, "seed": exp.seed, "engine": exp.engine_name, "intervention_text": req.text,
-                               "plan": plan.model_dump(), "config": exp.baseline.config.to_dict(), "months": exp.baseline.month, "name": req.text[:60],
+                               "plan": plan.model_dump(), "config": {**exp.baseline.config.to_dict(), "_scale": exp.scale}, "months": exp.baseline.month, "name": req.text[:60],
                                "fork_month": exp.fork_month})
     await hub.broadcast({"type": "forked", "status": exp.status(), "structure": exp.intervention.structure(),
                          "frame": exp.intervention.frames[-1] if exp.intervention.frames else None})
@@ -355,19 +376,21 @@ async def play(req: PlayRequest):
 @app.get("/api/employee/{world}/{eid}")
 def employee(world: str, eid: str):
     exp = hub.ensure_experiment()
-    w = _world(exp, world)
-    if eid not in w.employees:
-        raise HTTPException(404)
-    return w.employee_detail(eid)
+    with exp.lock:
+        w = _world(exp, world)
+        if eid not in w.employees:
+            raise HTTPException(404)
+        return w.employee_detail(eid)
 
 
 @app.get("/api/team/{world}/{tid}")
 def team(world: str, tid: str):
     exp = hub.ensure_experiment()
-    w = _world(exp, world)
-    if tid not in w.teams:
-        raise HTTPException(404)
-    return w.team_detail(tid)
+    with exp.lock:
+        w = _world(exp, world)
+        if tid not in w.teams:
+            raise HTTPException(404)
+        return w.team_detail(tid)
 
 
 @app.get("/api/events/{world}")
@@ -378,8 +401,10 @@ def events(world: str, significant: bool = True, since: int = 0):
 
 @app.get("/api/why/{world}/{event_id}")
 def why(world: str, event_id: int):
-    w = _world(hub.ensure_experiment(), world)
-    res = analysis.why(w.events, event_id)
+    exp = hub.ensure_experiment()
+    w = _world(exp, world)
+    with exp.lock:
+        res = analysis.why(w.events, event_id)
     for n in res["nodes"]:
         n["date"] = w.date_label(n["month"])
     for c in res["chain"]:
@@ -392,16 +417,19 @@ def effects(min_effect: float = 0.5):
     exp = hub.ensure_experiment()
     if not exp.intervention:
         return {"effects": [], "emergence": [], "note": "no intervention running"}
-    rep = analysis.classify_effects(exp.intervention, exp.baseline, min_effect)
-    rep["emergence"] = analysis.detect_emergence(exp.intervention, exp.baseline)
-    rep["divergence_by_team"] = _team_divergence(exp)
+    with exp.lock:
+        rep = analysis.classify_effects(exp.intervention, exp.baseline, min_effect)
+        rep["emergence"] = analysis.detect_emergence(exp.intervention, exp.baseline)
+        rep["divergence_by_team"] = _team_divergence(exp)
     return rep
 
 
 @app.get("/api/network/{world}")
 def network(world: str):
-    w = _world(hub.ensure_experiment(), world)
-    return {"informal": analysis.informal_network(w), "formal": analysis.formal_network(w)}
+    exp = hub.ensure_experiment()
+    w = _world(exp, world)
+    with exp.lock:
+        return {"informal": analysis.informal_network(w), "formal": analysis.formal_network(w)}
 
 
 @app.get("/api/decisions/{world}")
@@ -437,7 +465,7 @@ def save():
     versions = {"engine": exp.engine.describe(), "windtunnel": app.version}
     ids = {}
     hub.store.save_experiment({"id": exp.id, "template": exp.template, "seed": exp.seed, "engine": exp.engine_name, "intervention_text": exp.intervention_text,
-                               "plan": exp.plan.model_dump() if exp.plan else None, "config": exp.baseline.config.to_dict(), "months": exp.baseline.month,
+                               "plan": exp.plan.model_dump() if exp.plan else None, "config": {**exp.baseline.config.to_dict(), "_scale": exp.scale}, "months": exp.baseline.month,
                                "name": exp.intervention_text[:60] or "baseline", "fork_month": exp.fork_month})
     for w in exp.worlds():
         rid = f"{exp.id}-{w.label}"
@@ -476,14 +504,23 @@ def export(world: str, what: str, fmt: str = "json"):
 @app.post("/api/batch")
 async def start_batch(req: BatchRequest):
     exp = hub.ensure_experiment()
-    if req.plan:
-        plan = validate_plan(req.plan)
-    elif exp.plan:
-        plan = exp.plan
-    elif req.text:
-        plan = hub.parser.parse(req.text)
-    else:
-        raise HTTPException(400, "no plan")
+    if not (1 <= req.n <= 5000) or not (1 <= req.months <= 240):
+        raise HTTPException(400, "n must be 1–5000 and months 1–240")
+    try:
+        if req.plan:
+            plan = validate_plan(req.plan)
+        elif exp.plan:
+            plan = exp.plan
+        elif req.text:
+            plan = await asyncio.to_thread(hub.parser.parse, req.text)   # the Apple model can take many seconds
+        else:
+            raise HTTPException(400, "no plan")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(400, f"invalid plan: {exc}")
+    if not plan.changes:
+        raise HTTPException(400, "nothing to run: the plan has no changes")
     job_id = uuid.uuid4().hex[:8]
     job = {"id": job_id, "done": 0, "n": req.n, "status": "running", "result": None, "started": time.time(), "plan": plan.model_dump()}
     hub.batch_jobs[job_id] = job
@@ -493,7 +530,9 @@ async def start_batch(req: BatchRequest):
 
     async def runner():
         try:
-            res = await asyncio.to_thread(batch.run_batch, exp.template, plan, req.n, req.months, 3, req.engine, req.seed0, None, 1.0, None, progress)
+            # same organisation settings as the interactive run: its config, scale and fork month
+            res = await asyncio.to_thread(batch.run_batch, exp.template, plan, req.n, req.months, exp.fork_month if exp.fork_month is not None else exp.settle,
+                                          req.engine, req.seed0, exp.baseline.config, exp.scale, None, progress)
             job["result"] = {k: v for k, v in res.items() if k != "runs"}
             job["result"]["runs"] = [{k: r[k] for k in ("seed", "base", "int", "effects", "emergence")} for r in res["runs"]]
             job["result"]["histories"] = [{"seed": r["seed"], "base": r["base_hist"], "int": r["int_hist"]} for r in res["runs"][:200]]
@@ -522,6 +561,10 @@ def get_batch(job_id: str):
 # --------------------------------------------------------------------------------- websocket
 @app.websocket("/ws")
 async def ws(websocket: WebSocket):
+    origin = websocket.headers.get("origin")
+    if origin and origin not in ALLOWED_ORIGINS:     # browsers always send Origin; other local tools may omit it
+        await websocket.close(code=1008)
+        return
     await websocket.accept()
     hub.clients.add(websocket)
     exp = hub.ensure_experiment()

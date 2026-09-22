@@ -51,7 +51,7 @@ def _run_one(args: tuple) -> dict[str, Any]:
         "int_hist": [{k: m[k] for k in ("month", "backlog_months", "delivery", "turnover_12m", "stress", "management_load", "cost_ytd")} for m in inter.metrics_history],
         "team_backlog_int": {t: v["backlog_months"] for t, v in inter.metrics_history[-1]["teams"].items()},
         "team_backlog_base": {t: v["backlog_months"] for t, v in base.metrics_history[-1]["teams"].items()},
-        "effects": [{k: e[k] for k in ("metric", "team", "team_name", "effect_size", "relative_change", "lag_months", "order_label", "emergent", "graph_distance")} for e in eff["effects"][:25]],
+        "effects": [{k: e[k] for k in ("metric", "team", "team_name", "effect_size", "relative_change", "lag_months", "order_label", "emergent", "graph_distance")} for e in eff["effects"]],   # all of them: truncating to the top 25 undercounted surprise frequencies
         "emergence": [{k: e[k] for k in ("kind", "team", "label", "emergent")} for e in emerg],
         "significant_events": sum(1 for e in inter.events if e.significant),
         "decisions": len(inter.decision_log),
@@ -94,7 +94,13 @@ def summarise(results: list[dict[str, Any]], template: str = "") -> dict[str, An
 
     def dist(key: str, which: str) -> dict[str, float]:
         xs = sorted(r[which][key] for r in results)
-        return {"p10": round(xs[int(0.1 * (n - 1))], 3), "p50": round(xs[int(0.5 * (n - 1))], 3), "p90": round(xs[int(0.9 * (n - 1))], 3), "mean": round(sum(xs) / n, 3)}
+
+        def q(p: float) -> float:   # linear interpolation between order statistics (the old index truncation gave p90 < mean at n=2)
+            pos = p * (n - 1)
+            lo = int(pos)
+            hi = min(lo + 1, n - 1)
+            return xs[lo] + (xs[hi] - xs[lo]) * (pos - lo)
+        return {"p10": round(q(0.1), 3), "p50": round(q(0.5), 3), "p90": round(q(0.9), 3), "mean": round(sum(xs) / n, 3)}
 
     teams = list(results[0]["team_backlog_int"].keys())
     bottleneck_freq = {t: freq(lambda r, t=t: r["team_backlog_int"][t] > 1.0 and r["team_backlog_int"][t] > 2 * max(0.1, r["team_backlog_base"][t])) for t in teams}
@@ -171,7 +177,7 @@ def summarise(results: list[dict[str, Any]], template: str = "") -> dict[str, An
         d["median_lag"] = sorted(d["lags"])[len(d["lags"]) // 2] if d["lags"] else None
         d["mean_effect"] = round(sum(d["effects"]) / len(d["effects"]), 2)
         d.pop("lags"); d.pop("effects")
-        if d["emergent"] and d["frequency"] >= 0.2 and (d["graph_distance"] is None or d["graph_distance"] >= 1):
+        if d["team"] and d["emergent"] and d["frequency"] >= 0.2 and (d["graph_distance"] is None or d["graph_distance"] >= 1):   # org-wide aggregates are never "distant"
             surprises.append(d)
     surprises.sort(key=lambda d: (-(d["graph_distance"] or 0), -d["frequency"]))
     emergence_freq: dict[str, int] = {}

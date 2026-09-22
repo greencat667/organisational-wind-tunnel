@@ -50,12 +50,13 @@ function Why() {
             {data.chain.map((c: any, i: number) => (
               <div key={c.id} className={`node ${c.kind === 'intervention' ? 'root' : ''}`}>
                 <div className="when">{c.date}{c.emergent ? <span className="tag">emergent</span> : null}{c.kind === 'intervention' ? <span className="tag blue">intervention</span> : null}</div>
-                <div>{c.description}</div>
+                <div>{c.description}{c.repeats > 1 ? <span className="muted"> (×{c.repeats})</span> : null}</div>
                 <Delta node={data.nodes.find((n: any) => n.id === c.id)} />
               </div>
             ))}
           </div>
           {data.chain.length <= 1 && <div className="muted">No recorded causes beyond this event (exogenous or first-order).</div>}
+          {data.chain.length > 1 && status?.forked && !data.reaches_intervention && <div className="muted">This chain doesn't trace back to the intervention: it may be background churn that happens in both worlds.</div>}
           <div className="muted" style={{ marginTop: 6 }}>{data.nodes.length} events in the causal neighbourhood. Chain follows the cause closest to the intervention at each step.</div>
         </>
       )}

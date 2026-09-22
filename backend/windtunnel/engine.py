@@ -279,8 +279,8 @@ class World:
         self._recompute_capacity()
         for p in self.processes.values():
             n = int(round(self._arrivals_for(p) * 0.3))
-            for _ in range(n):
-                item = self._new_item(p, created=-1)
+            for k in range(n):
+                item = self._new_item(p, created=-1, key=f"{p.id}:warm:k{k}")
                 # place a share of items further along their process
                 if len(p.stages) > 1 and self.rng.random() < 0.4:
                     self._move_item(item, self.rng.randint(1, len(p.stages) - 1), record_flow=False)
@@ -360,18 +360,25 @@ class World:
                 return k
             k += 1
 
-    def _new_item(self, p, created: Optional[int] = None, bundle: float = 1.0) -> WorkItem:
+    def _wkey(self, w: WorkItem) -> str:
+        """Random draws about an item are keyed by where it came from (process, month, arrival index), not by its id:
+        ids come from a global counter, so one extra item in the intervention world (a recruitment case, a correction)
+        used to shift every later item's luck and break common random numbers between the two worlds."""
+        return w.rng_key or w.id
+
+    def _new_item(self, p, created: Optional[int] = None, bundle: float = 1.0, key: Optional[str] = None) -> WorkItem:
         self._item_seq += 1
-        r = self._r("priority", f"{p.id}:{self._item_seq}")
+        key = key or f"{p.id}:m{self.month}:s{self._item_seq}"
+        r = self._r("priority", key)
         pw = p.priority_weights
         priority = 1 if r < pw[0] else 2 if r < pw[0] + pw[1] else 3
         stage = p.stages[0]
         team_id = self.resolve_team(stage.team_id)
-        hours = self._stage_hours(stage, team_id, str(self._item_seq)) * bundle
+        hours = self._stage_hours(stage, team_id, f"{key}:0") * bundle
         created_m = self.month if created is None else created
         item = WorkItem(id=f"W{self._item_seq:06d}", process_id=p.id, kind=p.kind, priority=priority, stage_index=0,
                         team_id=team_id, remaining_hours=hours, stage_hours=hours, created_month=created_m,
-                        deadline_month=created_m + p.deadline_months, origin_team_id=p.origin_team_id)
+                        deadline_month=created_m + p.deadline_months, origin_team_id=p.origin_team_id, rng_key=key)
         item.path.append((self.month, team_id))
         self.work_items[item.id] = item
         self.teams[team_id].queue.append(item.id)
@@ -391,8 +398,8 @@ class World:
                 bundle = lam / self.config.max_items_per_process_month
                 lam = self.config.max_items_per_process_month
             n = self._poisson(lam, p.id)
-            for _ in range(n):
-                self._new_item(p, bundle=bundle)
+            for k in range(n):
+                self._new_item(p, bundle=bundle, key=f"{p.id}:m{self.month}:k{k}")
 
     # ----------------------------------------------------------- 3. people flow
     def _people_flow(self) -> None:
@@ -609,9 +616,23 @@ class World:
             hours = sum(w.remaining_hours for w in items)
             members = [m for m in self.active_members(t) if m.status == "active"]
             if workload:
+                # Work the team's AI agents will take this month is not planned onto people (and doesn't count towards
+                # their workload): reserve eligible items, in processing order, up to the agents' expected clean capacity.
+                human_items = items
+                if t.ai_capacity_hours > 0.5:
+                    budget = t.ai_capacity_hours * (1.0 - t.ai_exception_rate)
+                    human_items = []
+                    for w in sorted(items, key=lambda w: (w.priority, w.delayed, w.created_month, w.id)):
+                        p = self.processes[w.process_id]
+                        stage = p.stages[w.stage_index]
+                        if budget > 0.5 and w.remaining_hours <= budget and ai.eligible(t, w, stage, p, self):
+                            budget -= w.remaining_hours
+                        else:
+                            human_items.append(w)
+                human_hours = sum(w.remaining_hours for w in human_items)
                 t.demand_hours = hours
-                t.workload = hours / max(1.0, t.capacity_hours) if t.capacity_hours > 0 else (2.0 if items else 0.0)
-                self._allocate(t, items, members)
+                t.workload = human_hours / max(1.0, t.capacity_hours) if t.capacity_hours > 0 else (2.0 if human_items else 0.0)
+                self._allocate(t, human_items, members)
             t.backlog_hours = hours
             t.morale = sum(m.morale for m in members) / len(members) if members else 0.0
             t.stress = sum(m.stress for m in members) / len(members) if members else 0.0
@@ -630,6 +651,7 @@ class World:
             return
         load = {m.id: 0.0 for m in workers}
         cap = {m.id: max(1.0, m.capacity_hours) for m in workers}
+        cfg_alloc_cap = self.config.max_allocation_ratio
         by_id = {m.id: m for m in workers}
         approvals = 0.0
 
@@ -674,7 +696,7 @@ class World:
                 if m.id in ids:
                     heapq.heappush(heaps[skill], (ratio, -m.skills.get(skill, 0.0), m.id))
 
-        for w in sorted(items, key=lambda w: (w.priority, w.created_month, w.id)):
+        for w in sorted(items, key=lambda w: (w.priority, w.delayed, w.created_month, w.id)):
             stage = self.processes[w.process_id].stages[w.stage_index]
             if stage.approval:
                 approvals += stage.hours_mean
@@ -689,6 +711,11 @@ class World:
                     m = keep
                 else:
                     m = pop_min(stage.skill)
+                    # Nobody plans more than ~2 months of work into one month: the rest waits in the team queue.
+                    # Handing out the whole backlog made personal workload read "months queued" (7-17x) rather than
+                    # this month's load, which then drove stress and errors without bound.
+                    if load[m.id] / cap[m.id] >= cfg_alloc_cap:
+                        break
                 rate = 0.55 + 0.45 * m.skills.get(stage.skill, 0.2)
                 chunk = min(remaining, max(4.0, 0.35 * cap[m.id] * rate))   # a big item is shared, in chunks
                 load[m.id] += chunk / rate
@@ -845,12 +872,14 @@ class World:
         return acts, targets
 
     def team_can_do(self, t: Team, skills: set[str]) -> bool:
-        """A team can plausibly help with a skill if it provides it, or at least two active members have it at >=0.35."""
+        """A team can plausibly help with a skill if it provides it, or an active member has it at >=0.3.
+
+        (The old test needed two members at >=0.35; with the generated skill mix no neighbouring pair ever qualified, so
+        seek_help was never available and 'cooperation' was always 0.)"""
         if skills & set(t.skills_provided):
             return True
         for s in skills:
-            n = sum(1 for m in t.member_ids if self.employees[m].status == "active" and self.employees[m].skills.get(s, 0) >= 0.35)
-            if n >= 2:
+            if any(self.employees[m].status == "active" and self.employees[m].skills.get(s, 0) >= 0.3 for m in t.member_ids):
                 return True
         return False
 
@@ -1014,20 +1043,22 @@ class World:
                     if m.id in ids:
                         heapq.heappush(heaps[skill], (-avail[m.id], -m.skills.get(skill, 0.0), idx[m.id], m.id))
             queue = [self.work_items[i] for i in t.queue if i in self.work_items and self.work_items[i].status in ("queued", "in_progress")]
-            queue.sort(key=lambda w: (w.priority, w.created_month, w.id))
+            queue.sort(key=lambda w: (w.priority, w.delayed, w.created_month, w.id))
+            stage_at_start = {w.id: w.stage_index for w in queue}
             still: list[str] = []
+            start_ids = set(t.queue)
             expired = 0
             ai_avail = t.ai_capacity_hours
             t.ai_exceptions_this_month = 0
             for w in queue:
                 p = self.processes[w.process_id]
                 stage = p.stages[w.stage_index]
-                if w.priority == 3 and w.status == "queued" and self.month > w.deadline_month + cfg.low_priority_expiry_months:
+                if w.priority == 3 and self.month > w.deadline_month + cfg.low_priority_expiry_months:
                     w.status = "expired"
                     expired += 1
                     continue
                 # AI agents take eligible items first (bounded by their capacity); exceptions bounce back to humans
-                if ai_avail > 0.5 and w.remaining_hours <= ai_avail and ai.eligible(t, w, stage, p):
+                if ai_avail > 0.5 and w.remaining_hours <= ai_avail and ai.eligible(t, w, stage, p, self):
                     ai_avail -= w.remaining_hours
                     if ai.handle_item(self, t, w, stage) == "done":
                         w.assignee_id = None
@@ -1072,7 +1103,7 @@ class World:
                     if w.id not in m.active_tasks:
                         m.active_tasks.append(w.id)
                     # learning by doing
-                    if prof < 0.95 and self._r("learn", f"{m.id}:{w.id}") < 0.05:
+                    if prof < 0.95 and self._r("learn", f"{m.id}:{self._wkey(w)}") < 0.05:
                         m.skills[skill] = round(min(0.95, prof + 0.02), 2)
                     bump(m)
 
@@ -1106,25 +1137,34 @@ class World:
                     self._advance(w, t)
                 else:
                     still.append(w.id)
-            t.queue = still
+            # Items whose next stage is on this same team were advanced in place: _move_item left them in the old list,
+            # which `still` then replaced — so they sat "queued" in no queue at all (≈23% of frontline work vanished).
+            # Keep them, plus anything other mechanisms queued here during this loop.
+            kept = set(still)
+            still += [i for i in t.queue if i not in kept and i in self.work_items and self.work_items[i].team_id == t.id
+                      and self.work_items[i].status in ("queued", "in_progress")
+                      and (i not in start_ids or self.work_items[i].stage_index != stage_at_start.get(i))]
+            t.queue = list(dict.fromkeys(still))
             t.expired_this_month = expired
             if expired >= 5:
                 self.emit("work_dropped", t.id, "expired", [t.id], {}, {"items": expired}, self.recent_team_causes(t.id, months=3, limit=3),
                           f"{t.name} dropped {expired} stale low-priority requests", significant=expired >= 15)
             # overtime actually used
             for m in members:
-                used_ot = max(0.0, m.hours_worked - m.capacity_hours)
+                # capacity_hours already includes this month's overtime (work_overtime adds it), so compare with the base
+                used_ot = max(0.0, m.hours_worked - (m.capacity_hours - m.overtime_hours))
                 m.overtime_hours = min(m.overtime_hours, used_ot) if m.overtime_hours else 0.0
 
     def _error_occurs(self, e: Employee, w: WorkItem) -> bool:
-        p = 0.02 + 0.08 * max(0.0, e.stress - 0.55) + 0.05 * max(0.0, e.workload - 1.1)
+        p = 0.02 + 0.08 * max(0.0, e.stress - 0.55) + 0.05 * max(0.0, min(e.workload, 2.0) - 1.1)
         if e.onboarding_months_left > 0:
             p += 0.04
         if e.effort_level < 0.9 or e.current_behaviour == "reduce_quality":
             p += 0.06
         if w.workaround:
             p += 0.05
-        return self._r("error", w.id) < p
+        # bounded: even an exhausted team gets most things right; unbounded rates sent items round a rework loop forever
+        return self._r("error", f"{self._wkey(w)}:{w.stage_index}:{w.errors}") < min(p, self.config.max_error_probability)
 
     def _advance(self, w: WorkItem, from_team: Team) -> None:
         p = self.processes[w.process_id]
@@ -1148,7 +1188,7 @@ class World:
             self.teams[old_team].queue.remove(w.id)
         w.stage_index = new_stage
         w.team_id = new_team
-        w.stage_hours = self._stage_hours(stage, new_team, w.id)
+        w.stage_hours = self._stage_hours(stage, new_team, f"{self._wkey(w)}:{new_stage}")
         w.remaining_hours = w.stage_hours
         w.status = "queued"
         w.assignee_id = None
@@ -1197,7 +1237,7 @@ class World:
                     tr.weight *= cfg.memory_decay
                 m.memory = [tr for tr in m.memory if tr.weight > 0.05]
                 target_stress = clamp(0.15 + 0.5 * max(0.0, m.workload - 0.9) + 0.15 * (m.overtime_hours / cfg.max_overtime_hours)
-                                      + 0.2 * max(0.0, backlog_m - 0.6) + 0.1 * (1.0 - mgr_avail) - 0.05 * (m.morale - 0.5)
+                                      + 0.2 * max(0.0, min(backlog_m, 3.0) - 0.6) + 0.1 * (1.0 - mgr_avail) - 0.05 * (m.morale - 0.5)
                                       - 0.1 * m.adaptability * max(0.0, m.workload - 1.0))
                 m.stress = clamp(m.stress + cfg.stress_adapt * (target_stress - m.stress))
                 target_morale = clamp(0.72 - 0.35 * m.stress + 0.15 * (m.trust_management - 0.5) + 0.1 * (t.morale - m.morale)
