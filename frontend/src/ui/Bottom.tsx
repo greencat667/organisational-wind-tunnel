@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../lib/store'
 import { api } from '../lib/api'
 import { play } from './TopBar'
@@ -60,8 +60,19 @@ export function Bottom() {
     } finally { set({ interpreting: false }) }
   }
 
+  const rootRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = rootRef.current
+    if (!el) return
+    const publish = () => document.documentElement.style.setProperty('--bottom-h', `${el.offsetHeight + 12}px`)
+    publish()
+    const ro = new ResizeObserver(publish)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
   return (
-    <div className="overlay bottom">
+    <div className="overlay bottom" ref={rootRef}>
       <div className="scrubber">
         <span>{metrics.baseline[0]?.label}</span>
         <input type="range" min={minMonth} max={maxMonth} value={viewMonth ?? maxMonth} onChange={(e) => { const v = +e.target.value; set({ viewMonth: v >= maxMonth ? null : v }) }} />

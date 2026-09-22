@@ -62,8 +62,10 @@ button { cursor: pointer; }
 .chip { background: rgba(255,255,255,0.03); border: 1px solid var(--panel-border); color: var(--text-dim); padding: 4px 10px; border-radius: 999px; font-size: 11px; }
 .chip:hover { color: var(--text); border-color: rgba(111,211,255,0.4); }
 
-/* side panels */
-.side { top: 66px; bottom: 210px; width: min(340px, 30vw); display: flex; flex-direction: column; gap: 10px; }
+/* side panels: bottom offset tracks the bottom bar's actual height (set as --bottom-h by Bottom.tsx via
+   ResizeObserver), since its content (metric tile count, AI tiles) changes how tall it is; 210px is only
+   the pre-measurement fallback for first paint. */
+.side { top: 66px; bottom: var(--bottom-h, 210px); width: min(340px, 30vw); display: flex; flex-direction: column; gap: 10px; }
 @media (max-width: 1100px) { .side.right { display: none; } .side.left { width: 280px; } }
 .side.left { left: 18px; }
 .side.right { right: 18px; }
