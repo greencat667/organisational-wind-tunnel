@@ -7,7 +7,7 @@ Uses the official ``laya`` package (verified API, Sept 2026):
     answers[qid] -> noul: {"noul": P(true), "confidence"}; choice: {"choice", "probabilities", "confidence"};
                     score: {"score": expected level, "probabilities", "confidence"}
 
-Design (informed by projects 059/060): one ``noul`` question per available action rather than a
+Design (informed by earlier Laya-based agent projects): one ``noul`` question per available action rather than a
 single crowded ``choice`` — Laya's calibrated P(true) per action is far better behaved than a
 many-way choice. Two ``score`` questions give effort and turnover pressure. Everything is a single
 forward pass (~0.3-0.7 s on MPS for 6-10 questions). Import is lazy so the simulator runs without torch.
@@ -55,7 +55,7 @@ class LayaDecisionEngine(AgentDecisionEngine):
 
     def _calibrate(self) -> None:
         """Ask every action question on a calm, ordinary state. That P(yes) becomes the zero point for the action, so
-        Laya's known preference for concrete-sounding labels (see project 059) does not read as a decision."""
+        Laya's known preference for concrete-sounding labels (see docs/LAYA.md) does not read as a decision."""
         qs = {a: {"type": "noul", "instructions": spec.question} for a, spec in ALL_ACTIONS.items() if a != "continue_as_normal"}
         with self._lock:
             res = self._agent.predict(self._NEUTRAL_STATE, qs)

@@ -6,7 +6,8 @@ __pycache__/
 frontend/dist/
 data/*.sqlite
 data/*.sqlite-journal
-working/screenshots/
+working/
 .DS_Store
 *.log
 data/
+frontend/test-results/

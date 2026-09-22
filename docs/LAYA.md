@@ -19,7 +19,7 @@ One `predict` per agent decision: a `noul` question for every available action (
 the help target when relevant, and two `score` questions (effort, turnover pressure). P(action) = adjusted P(yes);
 P(continue) = ∏(1−P(yes)). Confidence = Laya's own confidence for the winning question.
 
-**Neutral-state calibration.** Following project 059's finding that Laya prefers concrete-sounding labels, the engine
+**Neutral-state calibration.** Following an earlier finding that Laya prefers concrete-sounding labels, the engine
 asks every action question once on a calm reference state at load time and shifts each P(yes) in logit space so that
 the neutral answer maps to 0.15. Measured neutral P(yes) on this machine: seek_help 0.88, use_workaround 0.95,
 automate_task 0.94, redistribute_work 0.75, approve_overtime 0.78, protect_team 0.75 — i.e. without calibration those

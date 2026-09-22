@@ -9,6 +9,8 @@ third-order consequences back to their causes.
 > outcomes.** Use it for hypothesis generation, second-order thinking, stress-testing and surfacing dependencies —
 > never for assessing, scoring or making decisions about real people. See [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
+[![The Organisational Wind Tunnel: Simulating AI's Second-Order Effects](https://img.youtube.com/vi/U7b4nGF48SU/maxresdefault.jpg)](https://www.youtube.com/watch?v=U7b4nGF48SU)
+
 ## What it is
 
 ```
@@ -37,7 +39,6 @@ USER INTERVENTION  →  parser (rules, or an LLM if one's available)  →  valid
 ## Quick start (any machine with Python 3.11 and Node)
 
 ```bash
-cd "personal-projects/065 - Organisational Wind Tunnel"
 python3.11 -m venv .venv && .venv/bin/pip install -r backend/requirements.txt
 (cd frontend && npm install)
 ./windtunnel.sh            # backend :8765 + frontend :5180
@@ -59,8 +60,8 @@ or decisions differ from rules:
 | Piece | What it replaces | Requires |
 |---|---|---|
 | Apple Foundation Models (`fm serve`) | the rule-based intervention parser | macOS 26/27 with Apple Intelligence enabled |
-| [Laya](https://github.com/convaiinnovations/laya) (`pip install laya`, Apache-2.0) | the rule-based decision engine | PyTorch; fastest on Apple Silicon (MPS) |
-| [Cactus Needle 3](https://pypi.org/project/cactus-needle/) (Apache-2.0) | the rule-based decision engine | its native library; fastest on Apple Silicon |
+| [Laya](https://github.com/NandhaKishorM/laya) (`pip install laya`, Apache-2.0) | the rule-based decision engine | PyTorch; fastest on Apple Silicon (MPS) |
+| [Cactus Needle 3](https://cactuscompute.com/needle) (Apache-2.0) | the rule-based decision engine | its native library; fastest on Apple Silicon |
 
 If `fm` isn't on your machine, the parser detects that immediately and uses rules with no delay or timeout — nothing
 to configure. To try a decision model instead of rules: `WINDTUNNEL_ENGINE=laya ./windtunnel.sh` (or `needle`).

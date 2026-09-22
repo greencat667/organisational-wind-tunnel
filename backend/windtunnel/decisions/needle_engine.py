@@ -4,9 +4,9 @@ Uses the ``cactus-needle`` package (verified API, Sept 2026):
     tools = [needle.tool(fn), ...]            # zero-arg functions; docstring = tool description
     agent = needle.Needle(tools=tools, system=None, weights=None, auto_date=False)
     r = agent.complete(text, max_new_tokens=96)  -> {"function_calls": [{"name", "arguments"}], "confidence", ...}
-    agent.reset()                              # every N calls (decode slows/stalls on long streaks, see project 058)
+    agent.reset()                              # every N calls (decode slows/stalls on long streaks)
 
-Design (informed by 058/063): at most FIVE tools per call (Needle's rendering threshold), so each
+Design (informed by earlier Needle-based agent projects): at most FIVE tools per call (Needle's rendering threshold), so each
 request's available actions are trimmed to the five most relevant plus "continue_as_normal"; one
 Needle instance per tool-set, cached; a single global lock (never run two Needle decodes at once).
 Needle returns one calibrated confidence for the call — the per-action distribution is synthetic.
