@@ -46,5 +46,9 @@ export function TopBar() {
 
 export async function play(p: { playing?: boolean; speed?: number; steps?: number; until_month?: number }) {
   const st = await api('/play', p)
-  useStore.setState({ status: st, viewMonth: null })
+  // A pure speed change is a preference for whenever simulation next runs forward — it shouldn't yank
+  // the view off whatever month you're currently replaying. playing/steps/until_month all mean "advance
+  // the live simulation now", so those jump the view back to it as before.
+  const jumpsToLive = p.playing !== undefined || p.steps !== undefined || p.until_month !== undefined
+  useStore.setState(jumpsToLive ? { status: st, viewMonth: null } : { status: st })
 }

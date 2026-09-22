@@ -109,6 +109,8 @@ button { cursor: pointer; }
 /* scrubber */
 .scrubber { display: flex; align-items: center; gap: 12px; font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
 .scrubber input[type=range] { flex: 1; accent-color: var(--accent); }
+.scrubber .scrub-play { flex: none; width: 26px; height: 26px; padding: 0; border-radius: 50%; display: flex;
+  align-items: center; justify-content: center; font-size: 11px; }
 .modes { display: flex; gap: 4px; }
 
 /* debug */

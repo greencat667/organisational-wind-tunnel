@@ -60,6 +60,30 @@ export function Bottom() {
     } finally { set({ interpreting: false }) }
   }
 
+  // Scrubbing back and hitting play used to jump straight to live (play() always resets viewMonth to
+  // null) instead of replaying forward from where you scrubbed to, like a video player would. Since the
+  // frontend already holds every already-simulated month in `metrics`, replaying it is just a local
+  // timer walking viewMonth forward — no backend call needed until it catches up to live.
+  const [replayTimer, setReplayTimer] = useState<number | null>(null)
+  useEffect(() => () => { if (replayTimer !== null) clearInterval(replayTimer) }, [replayTimer])
+  const stopReplay = () => setReplayTimer((t) => { if (t !== null) clearInterval(t); return null })
+  const playCmd = (p: Parameters<typeof play>[0]) => { stopReplay(); play(p) }
+
+  const togglePlay = () => {
+    if (replayTimer !== null) { stopReplay(); return }
+    if (status?.playing) { play({ playing: false }); return }
+    if (viewMonth === null || viewMonth >= maxMonth) { play({ playing: true }); return }
+    const speed = status?.speed || 1
+    if (speed >= 10000) { set({ viewMonth: null }); return }   // "max": already-simulated history has no reason to animate — jump straight to live
+    const id = window.setInterval(() => {
+      const cur = useStore.getState().viewMonth
+      const next = (cur ?? maxMonth) + 1
+      if (next >= maxMonth) { stopReplay(); set({ viewMonth: null }) } else set({ viewMonth: next })
+    }, Math.max(1000 / speed, 40))
+    setReplayTimer(id)
+  }
+  const isPlaying = !!status?.playing || replayTimer !== null
+
   const rootRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const el = rootRef.current
@@ -74,16 +98,16 @@ export function Bottom() {
   return (
     <div className="overlay bottom" ref={rootRef}>
       <div className="scrubber">
+        <button className="btn sm scrub-play" title={isPlaying ? 'Pause' : viewMonth !== null && viewMonth < maxMonth ? 'Play from here' : 'Play'} onClick={togglePlay}>{isPlaying ? '❚❚' : '▶'}</button>
         <span>{metrics.baseline[0]?.label}</span>
-        <input type="range" min={minMonth} max={maxMonth} value={viewMonth ?? maxMonth} onChange={(e) => { const v = +e.target.value; set({ viewMonth: v >= maxMonth ? null : v }) }} />
+        <input type="range" min={minMonth} max={maxMonth} value={viewMonth ?? maxMonth} onChange={(e) => { stopReplay(); const v = +e.target.value; set({ viewMonth: v >= maxMonth ? null : v }) }} />
         <span>{status?.label}</span>
-        <button className={`btn sm ${viewMonth === null ? 'active' : ''}`} onClick={() => set({ viewMonth: null })}>live</button>
+        <button className={`btn sm ${viewMonth === null ? 'active' : ''}`} onClick={() => { stopReplay(); set({ viewMonth: null }) }}>live</button>
         <span style={{ width: 8 }} />
-        <button className="btn sm" onClick={() => play({ playing: !status?.playing })}>{status?.playing ? 'pause' : 'play'}</button>
-        <button className="btn sm" onClick={() => play({ steps: 1 })}>+1 mo</button>
-        <button className="btn sm" onClick={() => play({ steps: 6 })}>+6 mo</button>
-        <button className="btn sm" onClick={() => play({ until_month: (status?.month || 0) + 36, speed: 10000 })}>+3 yrs</button>
-        {[1, 6, 12, 10000].map((v) => <button key={v} className={`btn sm ${status?.speed === v ? 'active' : 'ghost'}`} onClick={() => play({ speed: v })}>{v === 10000 ? 'max' : v === 12 ? '1y/s' : `${v}m/s`}</button>)}
+        <button className="btn sm" onClick={() => playCmd({ steps: 1 })}>+1 mo</button>
+        <button className="btn sm" onClick={() => playCmd({ steps: 6 })}>+6 mo</button>
+        <button className="btn sm" onClick={() => playCmd({ until_month: (status?.month || 0) + 36, speed: 10000 })}>+3 yrs</button>
+        {[1, 6, 12, 10000].map((v) => <button key={v} className={`btn sm ${status?.speed === v ? 'active' : 'ghost'}`} onClick={() => playCmd({ speed: v })}>{v === 10000 ? 'max' : v === 12 ? '1y/s' : `${v}m/s`}</button>)}
       </div>
       <div className="metrics">
         {[...METRICS, ...((i && (i.ai_agents || 0) > 0) || (b && (b.ai_agents || 0) > 0) ? AI_METRICS : [])].map(([label, key, fn, fmt, lowerBetter]) => {
