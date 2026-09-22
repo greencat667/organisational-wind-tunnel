@@ -1,3 +1,14 @@
+# Performance and scale
+
+Four O(n²)-in-population bottlenecks were found and fixed in one investigation, each surfaced by
+profiling or by batch-testing at 10,000+ simulated employees rather than by inspection — none was
+visible at the 100–500-person scale the templates ship at. In order: the original design proposal
+for the `_allocate()` fix below (kept as the historical record, including the review questions it
+was written to answer), then three shorter write-ups — `_process_work` plus the causal-event
+lookup, the informal-relationship graph, and the work-item transfer cap.
+
+---
+
 # Proposal: fix the O(n²) work-allocation bottleneck in `_allocate()`
 
 **Repo:** `organisational-wind-tunnel` (private), file `backend/windtunnel/engine.py`
@@ -316,3 +327,92 @@ item).
   proportionate, or whether there's a simpler data structure that gets the same
   asymptotic win with less code / less risk of a subtle bug in a scientific simulation
   where reproducibility matters.
+
+---
+
+# `_process_work` and the causal-event lookup
+
+With `_allocate()` fixed, `_process_work` turned out to have the identical disease: for every work
+item it rebuilt and sorted a fresh candidate list from the whole team (cProfile at 10,000 employees:
+232K sort-key evaluations in one month). Fixed with the same lazy-deletion heap-per-skill technique,
+keyed to reproduce the original stable sort's tie-break exactly (position in the team's member list,
+not employee id, since the original never included id as a tie-breaker).
+
+Separately, `recent_team_causes`/`recent_emp_causes` — used to attach plausible causes to every
+event — look for a handful of specific event kinds, but the single most frequent event in the whole
+simulation, an employee becoming overloaded, is not one of them. The event index was one flat list
+per team, so every lookup walked that noise regardless of what it was actually looking for. Bucketed
+the index by kind at the point events are recorded, so a lookup only ever touches the kinds it asked
+for.
+
+**Verified:** shadow run of both original algorithms against the current code across both templates
+and six seeds, 30 months each — metrics history, event descriptions, and event causes lists
+byte-identical in all 12 runs. Wall-clock at 10,000 employees: ~6.5s/month → ~1.3s/month.
+
+---
+
+# The informal-relationship graph
+
+Even after both fixes above, wall-clock at scale was still worse than linear. Profiling traced the
+remainder to org generation: every pair of teammates got a 45% chance of an informal relationship,
+so relationship count per person scaled with team size, making the monthly relationship-decay loop
+in `_psychology` quadratic in population by construction — a modelling choice, not an implementation
+bug, and also unrealistic on its own terms (nobody maintains a relationship with 45% of a
+1,000-person team).
+
+Fixed by capping relationships per person at a fixed number regardless of team size —
+`SimConfig.max_relationships_per_person`, default 150 (Dunbar's number) — enforced everywhere a
+relationship can be created: org generation (both within-team and cross-team ties) and the
+`seek_help` tie-strengthening action, which could otherwise keep adding ties indefinitely across a
+long-running simulation. Within-team seeding was rewritten from an all-pairs Bernoulli(0.45) roll to
+each person sampling a bounded number of teammates directly, which also drops generation itself from
+O(team_size²) to O(team_size). Since both sides now sample independently, a pair links if *either*
+side samples the other, which would roughly double the resulting average degree versus the original
+one-roll-per-pair model — halved the target-degree formula (0.45 → 0.225) to compensate.
+
+**Verified:** average relationships/person for the shipped templates barely moved (prototype 5.9 vs
+previously ~6.5; charity500 9.25 vs ~9.6), while a 10,000-employee org now holds flat at the 150 cap
+instead of averaging ~650. 34-test suite passes; same-seed determinism and different-seed divergence
+hold for both templates over 36 months. `_psychology`'s per-employee cost roughly flattens with
+scale afterward (5.2µs at 1,000 employees → 19.0µs at 20,000, versus → 120µs before). Full step() at
+10,000 employees: ~1.3s/month → ~0.9s/month; 20,000 (previously impractical): ~2.8s/month.
+
+---
+
+# The work-item transfer cap
+
+The three fixes above are pure performance work — verified to produce byte-identical or
+statistically-equivalent output to the original code. This last one is a genuine bug fix, found by
+running a 10,000-employee batch sweep and asking whether the outcome distribution still made sense
+(it didn't: "stable" dropped to 0% with a different, seemingly unrelated team reported as the worst
+bottleneck on every check).
+
+`transfer_item()` taxes a work item 25% whenever it lands on a team whose declared `skills_provided`
+doesn't cover its skill — a reasonable one-off penalty for working outside your speciality. But the
+two actions that call it, `seek_help` and `_manager_redistribute`, gate the transfer with a looser
+check, `team_can_do()`, which accepts a team if just two of its members happen to have incidental
+proficiency ≥0.35 in that skill — even when it isn't the team's actual specialty. Every transfer that
+only qualifies through that loophole is exactly the case that triggers the penalty, and nothing
+capped how many times the same item could be re-transferred. Traced one real item at 10,000
+employees: created in `operations`, bounced through bizsupport, finance, tech and comms 13 times
+over 17 months, its remaining hours compounding from 1,843 to 31,258 (~17x) and single-handedly
+dominating whichever team it happened to be sitting in that month.
+
+This was never reachable at the templates' native scale — too few items in flight at once for the
+unlucky streak to occur — and became close to certain at 10,000 employees, where there are ~250–300
+new items a month and proportionally more transfer decisions being made.
+
+**Fix:** `WorkItem.transfer_count`, capped at `SimConfig.max_item_transfers` (default 2) in both
+callers; a capped-out item is treated as if no eligible team was found rather than blocked inside
+`transfer_item()` itself, so callers' own moved-item bookkeeping stays correct.
+
+**Verified:** the same seed that produced the 31,258-hour item now stays bounded — org-wide backlog
+0.06 to 0.28 months across 36 months (was 0.06 to 3.17), worst team's own backlog never exceeds 0.89
+months (was 17.9). Checked across four seeds: no item's remaining hours ever exceed exactly 1.25²
+(1.5625×), regardless of how long the run goes. Re-running the 10,000-employee batch sweep afterward,
+"stable" stayed at 0% — but for a legible, consistent reason: bottleneck now concentrates on
+`bizsupport` (the team the admin-cut scenario actually targets) in 100% of runs, not a different
+unrelated team each time. A 20% capacity cut genuinely destabilising a 10,000-person admin function
+is a real finding to take on its own terms, not an artifact of the transfer bug. A 24-seed sweep at
+the templates' native scale afterward confirmed nothing regressed there (stable 50%, bottleneck
+41.7%, both close to the pre-investigation baseline).

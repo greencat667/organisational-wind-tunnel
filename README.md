@@ -1,9 +1,9 @@
 # Organisational Wind Tunnel
 
-An AI-powered 3D organisational simulator that runs entirely on your Mac. Describe a change in plain English
-("Reduce administrative capacity by 20% while protecting frontline delivery"), watch a synthetic organisation of
-persistent employee agents respond over simulated months and years, and trace the second- and third-order
-consequences back to their causes.
+A 3D organisational simulator, with AI as an optional extra rather than the engine room. Describe a change in plain
+English ("Reduce administrative capacity by 20% while protecting frontline delivery"), watch a synthetic
+organisation of persistent employee agents respond over simulated months and years, and trace the second- and
+third-order consequences back to their causes.
 
 > **This is an exploratory organisational simulation, not a prediction of employee behaviour or organisational
 > outcomes.** Use it for hypothesis generation, second-order thinking, stress-testing and surfacing dependencies —
@@ -12,49 +12,72 @@ consequences back to their causes.
 ## What it is
 
 ```
-USER INTERVENTION  →  Apple Foundation Model  →  validated CHANGE PLAN  →  ORGANISATION SIMULATION
+USER INTERVENTION  →  parser (rules, or an LLM if one's available)  →  validated CHANGE PLAN  →  SIMULATION
                                                                               ↓
-                                                        Laya / Needle / rules: bounded agent decisions
+                                                    bounded agent decisions: rules, or a small model if selected
                                                                               ↓
                                                             deterministic organisational physics
                                                                               ↓
                                                               updated organisation → next month ↺
 ```
 
-* **Four separated layers.** A language model only *interprets* interventions and *explains* results; small
-  decision models (Laya, Cactus Needle 3) or rules make thousands of bounded employee/manager decisions; a
-  deterministic engine owns time, work, queues, capacity, skills, money, recruitment, absence, information and
-  relationships; a Three.js world makes the system visible.
+* **AI-optional, not AI-dependent.** By default, every decision in the wind tunnel — interpreting your intervention
+  and every employee/manager choice — is made by fast, deterministic rules. You can swap either one for a model
+  (Apple's on-device model for interpretation; Laya or Cactus Needle 3 for agent decisions) to see how it changes
+  things, but nothing about running the simulator or reading its output requires a model, a GPU, or an API key.
 * **Consequences are not scripted.** The intervention changes the environment. Agents respond. Their responses
-  change the environment for others. Cascades (or their absence) emerge from the rules.
+  change the environment for others. Cascades (or their absence) emerge from the rules, not from a script.
 * **Baseline vs intervention** run from the same seed with *common random numbers*, so every divergence is caused
   by the change, not by luck. A causal event graph lets you click any effect and ask **WHY DID THIS HAPPEN?**
 * **Many worlds.** Run hundreds or thousands of seeds without rendering and read the outcome *frequencies within the
-  model*, clusters and distant "surprises".
-* **Fully local.** Apple Foundation Models via macOS's built-in `fm serve`, Laya via PyTorch/MPS, Needle 3 via its
-  native library. No cloud APIs, no telemetry.
+  model*, clusters and distant "surprises". Verified to hold up at 10,000+ simulated employees.
+* **Fully local, no telemetry.** The deterministic core is pure Python and needs nothing beyond the pinned
+  dependencies. The optional AI extras below add no network calls either — everything runs on-device.
 
-## Quick start (Apple Silicon, macOS 26/27)
+## Quick start (any machine with Python 3.11 and Node)
 
 ```bash
 cd "personal-projects/065 - Organisational Wind Tunnel"
-uv venv --python 3.11 .venv && uv pip install --python .venv/bin/python -r backend/requirements.txt
+python3.11 -m venv .venv && .venv/bin/pip install -r backend/requirements.txt
 (cd frontend && npm install)
 ./windtunnel.sh            # backend :8765 + frontend :5180
 ```
 
-Open <http://127.0.0.1:5180>. Optional: `WINDTUNNEL_ENGINE=laya ./windtunnel.sh` (or `needle`), `WINDTUNNEL_TEMPLATE=charity500`.
-Apple Intelligence must be enabled for the intervention parser to use the on-device model (`fm available` should say
-"System model available"); otherwise a rule-based parser is used and the UI says so.
+Open <http://127.0.0.1:5180>. This runs the deterministic path end to end: a rule-based parser turns your English
+into a change plan, and rule-based agents make every decision. Nothing here needs a particular OS, chip, or model
+download.
 
 The critical demo: press **play** on the healthy organisation → type *Reduce administrative capacity by 20% while
 maintaining existing frontline delivery* → **SIMULATE CHANGE** → check the interpreted plan → **RUN EXPERIMENT** →
 **+3 yrs** → open **Effects** → click a second-order effect → read the causal chain → drag the time scrubber back.
 
+### Optional AI extras (Apple Silicon Mac, macOS 26/27)
+
+Three swappable pieces can replace their rule-based defaults if you want to compare how model-driven interpretation
+or decisions differ from rules:
+
+| Piece | What it replaces | Requires |
+|---|---|---|
+| Apple Foundation Models (`fm serve`) | the rule-based intervention parser | macOS 26/27 with Apple Intelligence enabled |
+| [Laya](https://github.com/convaiinnovations/laya) (`pip install laya`, Apache-2.0) | the rule-based decision engine | PyTorch; fastest on Apple Silicon (MPS) |
+| [Cactus Needle 3](https://pypi.org/project/cactus-needle/) (Apache-2.0) | the rule-based decision engine | its native library; fastest on Apple Silicon |
+
+If `fm` isn't on your machine, the parser detects that immediately and uses rules with no delay or timeout — nothing
+to configure. To try a decision model instead of rules: `WINDTUNNEL_ENGINE=laya ./windtunnel.sh` (or `needle`).
+`WINDTUNNEL_TEMPLATE=charity500` switches the synthetic organisation from 100 to ~500 people. Details, measured
+latency and known pitfalls of each are in [docs/APPLE_FOUNDATION_MODELS.md](docs/APPLE_FOUNDATION_MODELS.md),
+[docs/LAYA.md](docs/LAYA.md) and [docs/NEEDLE.md](docs/NEEDLE.md).
+
+`backend/requirements.txt` installs Laya and Needle by default so the extras work out of the box; if you're on a
+platform where they don't build cleanly, delete those two lines and reinstall — the deterministic path doesn't need
+them.
+
 ## Batch runs from the command line
 
 ```bash
 .venv/bin/python scripts/batch_cli.py --n 500 --months 36 --text "Reduce administrative capacity by 20%"
+.venv/bin/python scripts/batch_cli.py --n 100 --sweep target_utilisation=0.65,0.75,0.85   # sensitivity sweep
+.venv/bin/python scripts/batch_cli.py --n 24 --scale 100 --text "..."                     # ~10,000-employee org
 ```
 
 ## Tests
@@ -62,7 +85,6 @@ maintaining existing frontline delivery* → **SIMULATE CHANGE** → check the i
 ```bash
 .venv/bin/python -m pytest -q tests     # 34 tests: physics, determinism, forking, interventions, causality, AI mechanics, store, adapters
 (cd frontend && npm run smoke)          # Playwright end-to-end smoke test against the real servers
-.venv/bin/python scripts/batch_cli.py --n 100 --sweep target_utilisation=0.65,0.75,0.85   # sensitivity sweep
 ```
 
 ## Documentation
@@ -72,20 +94,34 @@ maintaining existing frontline delivery* → **SIMULATE CHANGE** → check the i
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | layers, modules, data flow, technology choices and why |
 | [docs/SIMULATION_MODEL.md](docs/SIMULATION_MODEL.md) | every simulation assumption: organisation, work, processes, physics, psychology, information, finance |
 | [docs/AGENT_DECISIONS.md](docs/AGENT_DECISIONS.md) | decision engine abstraction, triggers, context compression, actions, confidence routing, cache |
-| [docs/LAYA.md](docs/LAYA.md) · [docs/NEEDLE.md](docs/NEEDLE.md) · [docs/APPLE_FOUNDATION_MODELS.md](docs/APPLE_FOUNDATION_MODELS.md) | verified APIs, how each model is used, measured latency, pitfalls |
-| [docs/AI_SCENARIOS.md](docs/AI_SCENARIOS.md) | AI agent pools, supervision, exceptions, silent errors, incidents, deskilling, attrition-based downsizing, delegated approvals; measured outcomes |
+| [docs/LAYA.md](docs/LAYA.md) · [docs/NEEDLE.md](docs/NEEDLE.md) · [docs/APPLE_FOUNDATION_MODELS.md](docs/APPLE_FOUNDATION_MODELS.md) | verified APIs, how each optional model is used, measured latency, pitfalls |
+| [docs/AI_SCENARIOS.md](docs/AI_SCENARIOS.md) | *simulated* AI-adoption scenarios (agent pools, supervision, deskilling…) — deterministic, no model involved |
+| [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | the O(n²) bottlenecks found and fixed to make 10,000+-employee organisations practical |
 | [docs/VALIDATION.md](docs/VALIDATION.md) | what has been checked, how historical validation would work |
 | [docs/PRIVACY.md](docs/PRIVACY.md) · [docs/LIMITATIONS.md](docs/LIMITATIONS.md) | privacy design; what this tool is and is not |
 
 ## AI-impact scenarios
 
-Three shipped chips — **Automate back end**, **Supervisory roles**, **AI workflow loops** (plus a delegated-approvals variant) — exercise the AI primitives: agent pools that need human supervision, exceptions returning to staff, hidden defects surfacing downstream, incidents, skill atrophy and attrition-based downsizing. See [docs/AI_SCENARIOS.md](docs/AI_SCENARIOS.md).
+Four shipped chips — **Automate back end**, **Supervisory roles**, **AI workflow loops**, and a delegated-approvals
+variant — let you simulate an organisation *adopting* AI: agent pools that need human supervision, exceptions
+returning to staff, hidden defects surfacing downstream, incidents, skill atrophy and attrition-based downsizing.
+This is all deterministic organisational physics, distinct from the optional AI extras above that can drive the
+simulator itself — you don't need any model installed to run these scenarios. See
+[docs/AI_SCENARIOS.md](docs/AI_SCENARIOS.md).
 
 ## Status
 
-First vertical slice, built 2026-09-20: 100-person / 8-team synthetic organisation (a 500-person, 27-team template
-also ships), real work items flowing through 14 processes, monthly simulation, heuristic + Laya + Needle + recorded
-decision engines, Apple FM intervention parser with rule fallback, Three.js world with instanced employees and
-animated work/information flow, baseline/intervention split universe, time scrubber, event timeline, employee and
-team inspectors with decision replay, effects classifier, emergence detector, WHY chains, Monte Carlo batch runner
-with clusters and surprises, SQLite save/export, developer diagnostics. Measured numbers are in the docs.
+100-person / 8-team synthetic organisation (a 500-person, 27-team template also ships), real work items flowing
+through 14 processes, monthly simulation, heuristic + Laya + Needle + recorded decision engines, an intervention
+parser with rule fallback, a Three.js world with instanced employees and animated work/information flow,
+baseline/intervention split universe, time scrubber, event timeline, employee and team inspectors with decision
+replay, effects classifier, emergence detector, WHY chains, Monte Carlo batch runner with clusters and surprises,
+SQLite save/export, developer diagnostics. Performance-tested and bug-fixed up to 20,000 simulated employees (see
+[docs/PERFORMANCE.md](docs/PERFORMANCE.md)); the 100- and 500-person templates are the calibrated, validated sizes.
+Measured numbers are in the docs.
+
+## License
+
+[MIT](LICENSE) for this repository's own code. The optional AI extras are separate projects with their own
+licenses: Laya and Cactus Needle are both Apache-2.0; Apple Foundation Models is Apple's own on-device system
+service, called over local HTTP and never bundled or redistributed here.
