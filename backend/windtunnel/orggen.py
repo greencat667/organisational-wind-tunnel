@@ -376,13 +376,45 @@ def productive_hours(emp: Employee, team_size: int) -> float:
     return max(0.0, h)
 
 
+APPROVAL_UTILISATION = 0.8   # management time is sized so approvals use ~80% of what's left after line management
+
+
+def approval_pool_hours(team, employees) -> float:
+    """Approval/decision hours a team has by design: the manager's management time minus line management, plus seniors'
+    8h. Mirrors World._recompute_capacity (manager 15h + 3h/report, line management 6h + 1.5h/report)."""
+    n = len(team.member_ids)
+    pool = 0.0
+    for eid in team.member_ids:
+        e = employees[eid]
+        if e.is_manager:
+            b = min(e.contracted_hours * 0.8, 15.0 + 3.0 * max(0, n - 1))
+            pool += b - min(b, 6.0 + 1.5 * max(0, n - 1))
+        elif e.grade >= 5:
+            pool += 8.0
+    return pool
+
+
 FUNCTION_UTILISATION = {"admin": 0.84, "support": 0.76, "income": 0.74, "frontline": 0.74, "technology": 0.74, "management": 0.6}
 
 
 def calibrate_arrivals(teams, employees, processes, target: float, iterations: int = 12) -> None:
     """Scale process arrival rates so the busiest team touched by each process sits near its function's target utilisation
     (back-office/admin teams are calibrated hotter than frontline teams — see docs/SIMULATION_MODEL.md)."""
-    cap = {t.id: sum(productive_hours(employees[e], len(t.member_ids)) for e in t.member_ids) * 0.92 for t in teams.values()}
+    cap0 = {t.id: sum(productive_hours(employees[e], len(t.member_ids)) for e in t.member_ids) * 0.92 for t in teams.values()}
+    pool = {t.id: approval_pool_hours(t, employees) for t in teams.values()}
+
+    def allowance() -> dict[str, float]:
+        """Extra manager hours each team needs so its approvals run at APPROVAL_UTILISATION (the old calibration sized only
+        the work stages, so Finance's approvals alone exceeded its management time before any intervention)."""
+        dem = {tid: 0.0 for tid in teams}
+        for p in processes.values():
+            for s in p.stages:
+                if s.approval:
+                    dem[s.team_id] += p.arrival_rate * s.hours_mean
+        return {tid: max(0.0, dem[tid] / APPROVAL_UTILISATION - pool[tid]) for tid in teams}
+
+    extra = allowance()
+    cap = {tid: max(1.0, cap0[tid] - 0.92 * extra[tid]) for tid in teams}
     tgt = {t.id: FUNCTION_UTILISATION.get(t.function, target) * (target / 0.75) for t in teams.values()}
     # 1) global level: scale all weights by one factor so total demand hours = target * total capacity
     total_cap = sum(cap.values())
@@ -399,6 +431,8 @@ def calibrate_arrivals(teams, employees, processes, target: float, iterations: i
             for s in p.stages:
                 if not s.approval:
                     demand[s.team_id] += p.arrival_rate * s.hours_mean
+        extra = allowance()
+        cap = {tid: max(1.0, cap0[tid] - 0.92 * extra[tid]) for tid in teams}
         for p in processes.values():
             ratios = [(demand[s.team_id] / max(1.0, cap[s.team_id])) / tgt[s.team_id] for s in p.stages if not s.approval]
             if not ratios:
@@ -409,3 +443,5 @@ def calibrate_arrivals(teams, employees, processes, target: float, iterations: i
             p.arrival_rate = min(base[p.id] * hi, max(base[p.id] * lo, p.arrival_rate * (1.0 / u) ** 0.6))
     for p in processes.values():
         p.arrival_rate = round(max(0.5, p.arrival_rate), 2)
+    for tid, x in allowance().items():
+        teams[tid].approval_allowance_hours = round(x, 1)

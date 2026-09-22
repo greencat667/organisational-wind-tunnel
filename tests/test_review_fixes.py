@@ -109,3 +109,48 @@ def test_org_rows_not_emergent_or_third_order():
     for e in rep["effects"]:
         if e["team"] is None:
             assert e["order_label"] == "organisation" and e["emergent"] is None
+
+
+# ----------------------------------------------------------------------------- follow-up modelling fixes
+
+def test_baseline_management_is_not_overloaded():
+    w = World("prototype", 7, "b", record_frames=False); w.run(39)
+    h = w.metrics_history[6:]
+    for tid in w.teams:
+        assert sum(x["teams"][tid]["management_load"] for x in h) / len(h) < 1.0, tid
+        assert sum(x["teams"][tid]["approvals_waiting"] for x in h) / len(h) < 5, tid
+
+
+def test_cutting_officers_frees_approval_time():
+    w = World("prototype", 7, "b", record_frames=False); w.run(3)
+    before = w.teams["finance"].management_capacity_hours
+    schedule_plan(w, rule_parse("Reduce finance by 30%")); w.run(4)
+    assert w.teams["finance"].management_capacity_hours >= before * 0.95
+
+
+def test_blocked_backfill_reopens_after_freeze():
+    w = World("prototype", 7, "b", record_frames=False); w.run(3)
+    t = w.teams["operations"]
+    t.hiring_frozen = True
+    leaver = next(e for e in w.active_members(t) if e.id != t.manager_id)
+    w._employee_leaves(leaver)
+    assert t.blocked_backfills
+    t.hiring_frozen = False
+    w.step()
+    assert not t.blocked_backfills
+    assert any(v.reason == "backfill" for v in t.vacancies) or any(e.kind == "employee_hired" and t.id in e.entities for e in w.events[-80:])
+
+
+def test_phased_supervisory_conversion_reaches_target():
+    b, i = _pair("Convert half of the administrative and finance roles into supervisors of AI agent teams, with agents handling 80% of routine work.", months=14)
+    for tid in ("finance", "bizsupport"):
+        prog = i._conversion_progress[tid]
+        assert abs(prog["done"] - round(prog["orig"] * 0.5)) <= 1
+
+
+def test_supervision_slips_under_pressure():
+    _, i = _pair("Deploy AI agents to take 70% of routine finance and administrative work over 6 months and do not replace leavers, "
+                 "and cut admin by 25%", seed=42, months=36)
+    cov = [min((x["teams"][t]["ai_supervision_coverage"] for t in x["teams"] if x["teams"][t]["ai_agents"] > 0), default=1.0)
+           for x in i.metrics_history]
+    assert sum(1 for c in cov if c < 0.9) >= 3

@@ -17,10 +17,11 @@ Do not use it for: predicting specific employees · performance assessment · HR
 * The Apple model can mis-read an intervention; always check the interpreted plan before running (RUN / EDIT / CANCEL).
   The rule-based parser handles one change per clause ("cut X and hire Y"), negations and protection clauses, and says
   what it couldn't read rather than guessing; outsourcing, relocation, hybrid working and start dates aren't modelled.
-* Known modelling gaps (found in the September 2026 review, not yet changed): management load carries a flat +0.5 offset
-  and approval hours share the manager's line-management time, so cutting officers also cuts approval capacity; with the
-  default settings AI supervision never runs short, so the supervision-gap paths are rarely exercised; vacancies blocked
-  during a hiring freeze aren't reopened when it lifts.
+* Manager roles are sized once, for the team as designed. A merge therefore leaves one manager's time spread over both
+  teams (realistic for a straight merge, harsh if the role would in practice be regraded); edit the plan or add capacity
+  to model a resized role.
+* AI supervision cost (12 h per agent-month, i.e. ~10% of agent output) is a plausible guess, not a measured figure; it
+  decides how easily staff keep up. Sweep it (`--sweep ai_supervision_hours=12,24,36`) rather than trusting the default.
 * AI engines are slow (~0.3 s per decision); the interactive cap of 24 decisions/month changes which agents get to decide.
 * Projects, suppliers and resources exist only implicitly (as processes and budgets).
 * Import of real organisations is not built yet.

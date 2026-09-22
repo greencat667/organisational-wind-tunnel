@@ -263,7 +263,7 @@ def apply_action(world: "World", emp: "Employee", d: "AgentDecision", cause: int
         return
 
     if a == "pause_ai_agents":
-        team.ai_paused_until = world.month + 1
+        team.ai_paused_until = world.month      # this month only (month + 1 paused for two)
         team.ai_capacity_hours = 0.0
         world.emit("ai_paused", emp.id, "pause_ai_agents", [team.id], {}, {"until": team.ai_paused_until}, [cause],
                    f"{emp.name} paused {team.name}'s AI agents for a month", significant=True)
@@ -570,7 +570,12 @@ def apply_change(world: "World", change: dict[str, Any]) -> None:
             team = world.teams[tid]
             team.supervisory_share = min(1.0, team.supervisory_share + share)
             members = [m for m in world.active_members(team) if m.status == "active" and m.id != team.manager_id and m.role_kind == "officer"]
-            n = int(round(len(members) * share))
+            # cumulative across phased steps, against the officer count at the first step (taking a share of whoever is
+            # still an officer each time under-shoots: 50% in steps ended near 40%)
+            prog = world.__dict__.setdefault("_conversion_progress", {}).setdefault(tid, {"orig": len(members), "cum": 0.0, "done": 0})
+            prog["cum"] += share
+            n = max(0, min(len(members), int(round(prog["orig"] * prog["cum"])) - prog["done"]))
+            prog["done"] += n
             chosen = sorted(members, key=lambda m: -m.adaptability)[:n]
             for m in chosen:
                 m.role_kind = "supervisor"

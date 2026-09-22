@@ -84,7 +84,7 @@ them.
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q tests     # 46 tests: physics, invariants, determinism, forking, interventions, parser safety, causality, AI mechanics, store, adapters
+.venv/bin/python -m pytest -q tests     # 51 tests: physics, invariants, determinism, forking, interventions, parser safety, causality, AI mechanics, store, adapters
 (cd frontend && npm run smoke)          # Playwright end-to-end smoke test against the real servers
 ```
 

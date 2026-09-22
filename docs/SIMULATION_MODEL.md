@@ -43,14 +43,21 @@ All parameters live in `backend/windtunnel/config.py` (`SimConfig`) and `orggen.
   hours; otherwise the item waits and `approvals_waiting` grows. Workarounds skip the approval stage at higher error risk.
 
 ## Capacity (organisational physics)
-* 150 contracted hours/month; 92% productive. Managers spend 15 h + 3 h per direct report on management (capped at 80%);
-  directors 60%; seniors (grade ≥5) 8 h approving. Effective hours × effectiveness, where effectiveness =
+* 150 contracted hours/month; 92% productive. A manager's management time is sized for the team the role was designed
+  for (15 h + 3 h per designed report, plus a calibrated approval allowance; capped at 80%) and doesn't shrink when
+  reports leave. Line management itself needs 6 h + 1.5 h per *current* report; the rest is approval/decision time, so
+  losing officers frees approval time and growing past the design squeezes it. Directors spend 60%; seniors (grade ≥5)
+  8 h approving. **Management load** = (line management + approvals done or waiting + escalations) ÷ all management
+  time — no fixed offset. Calibration sizes each team's approval allowance so its approvals run at ~80% of the time left
+  after line management (the old calibration sized only work stages, so Finance's approvals alone exceeded its
+  management time and it read "overloaded" before any intervention). Effective hours × effectiveness, where effectiveness =
   onboarding ramp (0.4→1 over 4 months) × (1 − 0.2·max(0, stress−0.65)) × (0.85 + 0.15·morale) × effort level.
 * **Absence:** monthly probability 0.02–0.05 baseline + 0.10·max(0, stress−0.6); duration 10–100% of the month.
 * **Overtime:** only via a decision; ≤20 h/month; paid at 1.25× when the manager has approved it; raises stress.
 * **Recruitment:** vacancies open only if the department is not frozen and salary spend ×1.05 < budget; lead time
   3 months (+1–2 if the HR-capable team is overloaded); recruitment creates a real people-case work item; new hires
-  onboard for 4 months. Restructured teams have hiring frozen for 6 months.
+  onboard for 4 months. Restructured teams have hiring frozen for 6 months. A leaver who can't be replaced because of a
+  freeze or budget is remembered as a blocked backfill and the vacancy opens once the block lifts.
 * **Budget:** team budget = pay × 1.18. Departments freeze hiring when projected annual spend > budget (hysteresis 0.97).
 * **Automation / AI agents:** see [AI_SCENARIOS.md](AI_SCENARIOS.md) — agent pools with supervision coverage, learning, drift,
   exceptions, silent errors surfacing downstream, incidents, skill atrophy, attrition-based downsizing, delegated approvals.
@@ -96,6 +103,7 @@ stay stable; at 0.85, none do and median backlog reaches 2.3 months — the inte
 on anything else in the model.
 
 ## Measured baseline behaviour (prototype, heuristic engine, 36 months, seeds 5/7/11/23/42)
-Re-measured 2026-09-22 after the lost-work fix: backlog 0.07–0.26 months, delivery 0.99–1.03 (the old 0.75–0.78 was the
-lost-work bug, not the organisation), turnover 7–9/year, mean personal workload 0.76–1.05, cooperation (items passed to
-neighbouring teams) 130–195 over the run, no orphaned work items — stable.
+Re-measured 2026-09-23 after the lost-work and management-time fixes: backlog 0.07–0.17 months, delivery 0.97–1.04 (the
+old 0.75–0.78 was the lost-work bug, not the organisation), turnover 7–9/year, mean personal workload 0.77–0.93,
+management load 0.41–0.49 (every team <1.0), cooperation (items passed to neighbouring teams) 90–160 over the run, no
+orphaned work items — stable.

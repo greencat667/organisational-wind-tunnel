@@ -124,7 +124,12 @@ class Team:
     errors_this_month: int = 0
     morale: float = 0.7
     stress: float = 0.2
-    management_capacity_hours: float = 0.0
+    management_capacity_hours: float = 0.0   # hours available for approvals and decisions (after line management)
+    management_budget_hours: float = 0.0     # all management time: line management + approvals (drives management_load)
+    line_management_hours: float = 0.0       # hours line management itself needs this month (1:1s, supervision, people issues)
+    approval_allowance_hours: float = 0.0    # extra manager hours for approvals, sized by calibration to the team's approval volume
+    manager_span_design: int = 0             # team size the manager role was sized for (fixed at start; set by merges)
+    blocked_backfills: list = field(default_factory=list)   # (role, grade, cause event) leavers not replaced during a freeze/budget block
     management_load: float = 0.0
     approvals_waiting: int = 0
     turnover_12m: int = 0

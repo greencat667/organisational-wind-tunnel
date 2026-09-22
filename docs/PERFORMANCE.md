@@ -298,7 +298,7 @@ item).
 
 ## 5. Verification plan (before this is considered done)
 
-1. **Existing suite**: `.venv/bin/python -m pytest -q tests` (46 tests, includes
+1. **Existing suite**: `.venv/bin/python -m pytest -q tests` (51 tests, includes
    determinism, capacity arithmetic, causality) must still pass unchanged.
 2. **Shadow-run equivalence check** (new, not yet written): run the *old* and *new*
    `_allocate()` against identical `(team, items, members)` snapshots across a range of

@@ -276,6 +276,8 @@ class World:
         for e in self.employees.values():
             e.skill_at_start = dict(e.skills)
             e.role_kind = "manager" if e.is_manager else "officer"
+        for t in self.teams.values():
+            t.manager_span_design = t.manager_span_design or len(t.member_ids)
         self._recompute_capacity()
         for p in self.processes.values():
             n = int(round(self._arrivals_for(p) * 0.3))
@@ -418,6 +420,11 @@ class World:
                     e.current_behaviour = "leaving"
                     self.emit("resignation", e.id, "leave", [e.id, e.team_id], {"turnover_intention": round(e.turnover_intention, 2)}, {"reason": "external"},
                               self.recent_emp_causes(e.id, months=6, limit=3), f"{e.name} resigned from {self.teams[e.team_id].name}", significant=True)
+        # backfills blocked by a freeze or budget: reopen when that lifts (they used to be lost for good)
+        for team in self.teams.values():
+            while team.blocked_backfills and self.can_open_vacancy(team):
+                role, grade, cause = team.blocked_backfills.pop(0)
+                self._open_vacancy(team, role, grade, "backfill", [cause])
         # vacancies -> hires
         for team in self.teams.values():
             for v in list(team.vacancies):
@@ -457,10 +464,12 @@ class World:
         elif not team.replace_leavers and team.ai_agents > 0:
             team.baseline_headcount = max(1, team.baseline_headcount - 1)
             team.budget_annual -= e.salary * 1.18 * 0.5   # half the saving is banked, half funds the agents
+            self.departments[team.dept_id].budget_annual -= e.salary * 1.18 * 0.5
             self.emit("post_not_replaced", team.id, "attrition_downsizing", [team.id], {}, {"headcount": len(self.active_members(team))},
                       [ev.id] + ([ai._latest_ai_event(self, team.id)] if ai._latest_ai_event(self, team.id) is not None else []),
                       f"{team.name} did not replace {e.name}: work covered by AI agents", significant=True)
         else:
+            team.blocked_backfills.append((e.role, e.grade, ev.id))   # reopened once the freeze/budget block lifts
             self.emit("vacancy_blocked", team.id, "vacancy_not_opened", [team.id], {}, {"frozen": team.hiring_frozen},
                       [ev.id], f"{team.name} could not replace {e.name} (budget or hiring freeze)", significant=True)
         self._new_packet("rumour", f"{e.name} has left {team.name}", team.member_ids[:1] or ["management"], valence=-0.3,
@@ -586,20 +595,32 @@ class World:
             members = self.active_members(t)
             n = len(members)
             mgmt_hours = 0.0
+            budget = 0.0
+            line_need = 0.0
             cap = 0.0
             for e in members:
                 base = e.contracted_hours * (1.0 - e.absent_fraction)
                 if e.id == t.manager_id:
-                    m_h = min(base * 0.8, cfg.manager_base_hours + cfg.manager_hours_per_report * max(0, n - 1))
-                    mgmt_hours += m_h
+                    # The role's management time is sized for the team it was designed for, not for whoever is left:
+                    # when reports go, the manager doesn't get officer hours back — line management needs less of it and
+                    # the freed time goes to approvals. (Sizing it by current headcount meant cutting officers also cut
+                    # approval capacity.) A team that grows past its design squeezes approval time instead.
+                    span = max(1, t.manager_span_design or n)
+                    m_h = min(base * 0.8, cfg.manager_base_hours + cfg.manager_hours_per_report * max(0, span - 1) + t.approval_allowance_hours)
+                    need = min(m_h, cfg.manager_line_base_hours + cfg.manager_line_hours_per_report * max(0, n - 1))
+                    budget += m_h
+                    line_need += need
+                    mgmt_hours += m_h - need
                     base -= m_h
                 elif e.is_manager and t.function == "management":
                     m_h = base * 0.6          # directors: most of their time is management capacity
                     mgmt_hours += m_h
+                    budget += m_h
                     base -= m_h
                 elif e.grade >= 5:
                     m_h = min(base, 8.0)      # senior officers can approve routine items
                     mgmt_hours += m_h
+                    budget += m_h
                     base -= m_h
                 e.capacity_hours = max(0.0, base * cfg.productive_fraction * self.effectiveness(e))
                 cap += e.capacity_hours
@@ -607,6 +628,8 @@ class World:
             cap = ai.apply_capacity(self, t, members, cap)
             t.capacity_hours = cap
             t.management_capacity_hours = mgmt_hours
+            t.management_budget_hours = budget
+            t.line_management_hours = line_need
 
     def _update_team_aggregates(self, workload: bool = True) -> None:
         """Before processing (workload=True): demand = carried backlog + this month's arrivals, workload = demand/capacity.
@@ -1273,7 +1296,9 @@ class World:
         # management load bookkeeping (approvals + escalations relative to management hours)
         for t in self.teams.values():
             demand = getattr(t, "_approval_hours_used", 0.0) + getattr(t, "_approval_hours_waiting", 0.0) + getattr(t, "_escalation_hours", 0.0)
-            t.management_load = clamp(0.5 + demand / max(1.0, t.management_capacity_hours) if t.management_capacity_hours > 0 else 1.5, 0.0, 3.0)
+            # share of all management time in use: line management itself + approvals (done or waiting) + escalations.
+            # (Replaces a flat +0.5 stand-in for line management that didn't move when the team changed.)
+            t.management_load = clamp((t.line_management_hours + demand) / t.management_budget_hours if t.management_budget_hours > 0 else 1.5, 0.0, 3.0)
             t._approval_hours_used = 0.0
             t._approval_hours_waiting = 0.0
             t._escalation_hours = 0.0

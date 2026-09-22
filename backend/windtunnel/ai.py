@@ -84,12 +84,15 @@ def apply_capacity(world: "World", team: Team, members, cap: float) -> float:
         m.capacity_hours -= take
         covered += take
     if covered < need and others:
-        # officers cover the gap, but at most 25% of their time each
+        # Officers cover the gap from at most 25% of their time — and less when the team is stretched: checking agents'
+        # output is the first thing to slip under a queue (last month's workload). Without this, supervision always won
+        # over work, coverage never fell short and the drift/supervision-gap paths were never exercised.
+        slack = world.config.ai_officer_supervision_share * max(0.0, min(1.0, (1.4 - team.workload) / 0.6))
         gap = need - covered
-        pool = sum(m.capacity_hours * 0.25 for m in others)
+        pool = sum(m.capacity_hours * slack for m in others)
         take = min(gap, pool)
         for m in others:
-            share = (m.capacity_hours * 0.25) / max(1e-6, pool)
+            share = (m.capacity_hours * slack) / max(1e-6, pool)
             m.capacity_hours -= take * share
         covered += take
     cap -= covered
