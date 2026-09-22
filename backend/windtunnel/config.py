@@ -41,6 +41,7 @@ class SimConfig:
     # organisation
     target_utilisation: float = 0.75           # slack preset: lean 0.85 · normal 0.75 · slack 0.65 (admin teams run ~12% hotter)
     max_relationships_per_person: int = 150    # Dunbar's number: a hard cap on informal ties, independent of team size
+    max_item_transfers: int = 2                # a work item can be handed off this many times before it just sits and waits
     # AI agents (team defaults; per-team values may be overridden by change plans)
     ai_hours_per_agent: float = 120.0
     ai_monthly_cost_per_agent: float = 900.0

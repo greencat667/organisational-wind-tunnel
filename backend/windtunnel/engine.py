@@ -1170,6 +1170,7 @@ class World:
             self.teams[old].queue.remove(w.id)
         w.team_id = to_team
         w.transferred = True
+        w.transfer_count += 1
         w.status = "queued"
         w.assignee_id = None
         # a team without the exact skill works slower: stage hours inflate 25%

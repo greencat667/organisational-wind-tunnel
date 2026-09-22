@@ -222,6 +222,7 @@ class WorkItem:
     delayed: int = 0
     completed_month: Optional[int] = None
     transferred: bool = False     # moved off its normal process path by a decision
+    transfer_count: int = 0       # how many times transfer_item() has moved this item (capped: see max_item_transfers)
     workaround: bool = False      # skipped an approval stage
     ai_handled: bool = False      # last stage was done by AI agents
     ai_exception: bool = False    # bounced back to humans by AI

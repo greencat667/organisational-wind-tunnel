@@ -39,6 +39,8 @@ def apply_action(world: "World", emp: "Employee", d: "AgentDecision", cause: int
         # move up to 3 items the target could plausibly do (skill overlap), lowest priority number first
         moved = 0
         for w in sorted(queue_items, key=lambda w: (w.priority, w.created_month)):
+            if w.transfer_count >= cfg.max_item_transfers:
+                continue
             stage = world.processes[w.process_id].stages[w.stage_index]
             if stage.approval:
                 continue
@@ -325,6 +327,8 @@ def _manager_redistribute(world: "World", mgr: "Employee", team, cause: int, max
         if t.function == "management" or not t.accepting_transfers or t.workload > 0.85:
             continue
         for w in sorted(queue_items, key=lambda w: (w.priority, w.created_month)):
+            if w.transfer_count >= world.config.max_item_transfers:
+                continue
             stage = world.processes[w.process_id].stages[w.stage_index]
             if stage.approval or w.team_id != team.id:
                 continue
