@@ -130,7 +130,9 @@ def divergence(base_hist: list[dict], int_hist: list[dict], intervention_month: 
         post_x = x[intervention_month + 1:]
         # Scale by the baseline's own month-to-month spread over the SAME post-intervention months (the handful of settle
         # months before the fork are nearly flat, so their SD left the fixed floor to set the unit and effects saturated).
-        sd = max(_sd(pre) if len(pre) > 2 else 0.0, _sd(post_b[-12:]) if len(post_b) > 2 else 0.0)
+        # …measured on 3-month rolling means: the comparison is of 12-month averages, so judging it against single-month
+        # noise hid sustained shifts in naturally jumpy metrics (a team's workload falling 20% for a year scored "weak")
+        sd = max(_sd(_rolling(pre, 3)) if len(pre) > 4 else 0.0, _sd(_rolling(post_b[-12:], 3)) if len(post_b) > 4 else 0.0)
         floor = 1.0 if key in _COUNT_METRICS else (0.05 if key in _RATIO_METRICS else max(0.1 * abs(_mean(pre)), 1e-3))
         scale = max(sd, floor, 0.1 * abs(_mean(pre)))
         diffs = [xi - bi for bi, xi in zip(post_b, post_x)]
@@ -164,6 +166,10 @@ _COUNT_METRICS = {"turnover_12m", "vacancies", "headcount", "queue", "queue_item
                   "completed", "dropped", "overdue", "cooperation", "informal_ties", "ai_exceptions", "downstream_ai_errors", "supervisors", "defects"}
 _RATIO_METRICS = {"backlog_months", "delivery", "workload", "stress", "morale", "management_load", "information_reach", "cycle_time",
                   "ai_capacity_share", "deskilling_index", "fatigue", "norm_cutting_corners", "norm_overtime"}
+
+
+def _rolling(xs, k):
+    return [sum(xs[i:i + k]) / k for i in range(len(xs) - k + 1)] if len(xs) >= k else list(xs)
 
 
 def _mean(xs):
