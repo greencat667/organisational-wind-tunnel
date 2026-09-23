@@ -4,13 +4,14 @@
 
 ```
 Browser  (React 18 · TypeScript · React Three Fiber · zustand)           ← renders frames, never simulates
-   ↕ WebSocket /ws (frames, status) + REST /api/*
-Python 3.11 backend (FastAPI + uvicorn) — windtunnel/server.py
-   ├─ Experiment: baseline World + intervention World stepped in lock-step (thread pool, asyncio loop)
+   ↕ WebSocket /ws (frames, status) + REST /api/*   — or, in the browser build, postMessage to a Web Worker
+Front end: windtunnel/server.py (FastAPI + uvicorn)  |  windtunnel/browser.py (Pyodide in a Web Worker)
+Service: windtunnel/service.py — everything below, transport-agnostic
+   ├─ Experiment: baseline World + intervention World stepped in lock-step (play loop state; front ends drive tick())
    ├─ InterventionParser: Apple Foundation Models via `fm serve` (guided JSON) → validated ChangePlan; rule fallback
    ├─ AgentDecisionEngine: Heuristic | Laya | Recorded, wrapped in CachedDecisionEngine
    ├─ analysis: causal orders, divergence, emergence, key people, networks, k-means clusters
-   ├─ batch: multiprocessing Monte Carlo (no frames), summaries, surprises
+   ├─ batch: Monte Carlo (no frames) on a process pool, or a Web Worker pool in the browser; summaries, surprises
    └─ store: SQLite (experiments, runs, metrics, events, decisions, snapshots, batches)
 ```
 

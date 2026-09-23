@@ -5,7 +5,6 @@ slow; they can be used for small N). Produces frequencies *within the model*, ne
 """
 from __future__ import annotations
 
-import multiprocessing as mp
 import os
 import sys
 import time
@@ -58,13 +57,31 @@ def _run_one(args: tuple) -> dict[str, Any]:
     }
 
 
+def make_args(template: str, plan: ChangePlan | dict, n: int = 100, months: int = 36, settle: int = 3, engine: str = "heuristic",
+              seed0: int = 1000, config: Optional[SimConfig] = None, scale: float = 1.0) -> list[tuple]:
+    """One picklable/JSON-able argument tuple per world, for run_one (here) or a Web Worker pool (browser build)."""
+    plan_dict = plan.model_dump() if hasattr(plan, "model_dump") else plan
+    cfg = config.to_dict() if config else None
+    return [(template, seed0 + i, plan_dict, months, settle, engine, cfg, scale) for i in range(n)]
+
+
+def run_one(args) -> dict[str, Any]:
+    """Public name for one world pair (used by the browser's batch workers)."""
+    return _run_one(tuple(args))
+
+
 def run_batch(template: str, plan: ChangePlan | dict, n: int = 100, months: int = 36, settle: int = 3, engine: str = "heuristic",
               seed0: int = 1000, config: Optional[SimConfig] = None, scale: float = 1.0, workers: Optional[int] = None,
               progress: Optional[Callable[[int, int], None]] = None) -> dict[str, Any]:
-    plan_dict = plan.model_dump() if hasattr(plan, "model_dump") else plan
-    cfg = config.to_dict() if config else None
-    args = [(template, seed0 + i, plan_dict, months, settle, engine, cfg, scale) for i in range(n)]
+    args = make_args(template, plan, n, months, settle, engine, seed0, config, scale)
     t0 = time.perf_counter()
+    results = run_args(args, workers, progress)
+    return assemble(results, template, months, engine, time.perf_counter() - t0)
+
+
+def run_args(args: list[tuple], workers: Optional[int] = None, progress: Optional[Callable[[int, int], None]] = None) -> list[dict[str, Any]]:
+    n = len(args)
+    engine = args[0][5] if args else "heuristic"
     results: list[dict[str, Any]] = []
     if engine != "heuristic" or n <= 2:
         for i, a in enumerate(args):
@@ -72,6 +89,7 @@ def run_batch(template: str, plan: ChangePlan | dict, n: int = 100, months: int 
             if progress:
                 progress(i + 1, n)
     else:
+        import multiprocessing as mp   # imported here: unavailable in the browser build, which runs worlds in Web Workers
         workers = workers or max(1, min(8, (mp.cpu_count() or 2) - 1))
         backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         with mp.get_context("spawn").Pool(workers, initializer=_init_worker, initargs=(backend_dir,)) as pool:
@@ -79,9 +97,12 @@ def run_batch(template: str, plan: ChangePlan | dict, n: int = 100, months: int 
                 results.append(r)
                 if progress:
                     progress(i + 1, n)
-    results.sort(key=lambda r: r["seed"])
-    elapsed = time.perf_counter() - t0
-    return {"n": n, "months": months, "engine": engine, "elapsed_s": round(elapsed, 1), "summary": summarise(results, template), "runs": results}
+    return results
+
+
+def assemble(results: list[dict[str, Any]], template: str, months: int, engine: str, elapsed_s: float) -> dict[str, Any]:
+    results = sorted(results, key=lambda r: r["seed"])
+    return {"n": len(results), "months": months, "engine": engine, "elapsed_s": round(elapsed_s, 1), "summary": summarise(results, template), "runs": results}
 
 
 def summarise(results: list[dict[str, Any]], template: str = "") -> dict[str, Any]:

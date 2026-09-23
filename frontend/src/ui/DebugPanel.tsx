@@ -26,7 +26,7 @@ export function DebugPanel() {
       <span>model calls <b>{es.calls ?? 0}</b> mean <b>{es.mean_ms ?? '—'} ms</b></span>
       <span>cache hit <b>{es.cache_hit_rate != null ? Math.round(es.cache_hit_rate * 100) + '%' : '—'}</b> ({es.cache_size ?? 0})</span>
       <span>Apple FM <b>{d.apple_fm?.healthy ? 'up' : 'down'}</b> {d.apple_fm?.last_latency_ms} ms · {d.apple_fm?.last_source}</span>
-      <span>memory <b>{d.memory_mb} MB</b></span>
+      <span>memory <b>{d.memory_mb ? `${d.memory_mb} MB` : "—"}</b></span>
       <span>agents <b>{JSON.stringify(d.active_agents)}</b></span>
       <span>work items <b>{JSON.stringify(d.active_work_items)}</b></span>
       <span>triggers <b>{t.triggers ? Object.entries(t.triggers).map(([k, v]) => `${k}:${v}`).join(' ') : '—'}</b></span>

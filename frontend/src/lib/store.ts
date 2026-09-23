@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import type { Frame, Metrics, SimEvent, Status, Structure, WorldLabel, XRay, ViewMode } from './types'
 import { api } from './api'
+import { STATIC } from './mode'
+import { sim } from '../sim/client'
 
 interface Selection { kind: 'employee' | 'team'; id: string; world: WorldLabel }
 
@@ -94,20 +96,31 @@ export const useStore = create<State>((set, get) => ({
         }
       }
     }
-    set({ frames, metrics, events })
+    // keep the clock moving during continuous play (status messages only arrive when play starts or stops)
+    const status = st.status && msg.month != null ? { ...st.status, month: msg.month, label: msg.label ?? st.status.label } : st.status
+    set({ frames, metrics, events, status })
   },
 }))
 
 let ws: WebSocket | null = null
+let staticSubscribed = false
 export function connect() {
+  if (STATIC) {
+    // the in-browser simulation pushes the same messages the server's WebSocket would
+    if (!staticSubscribed) { sim().onEvent(handleMessage); staticSubscribed = true }
+    useStore.setState({ connected: true })
+    return
+  }
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return
-  const st = useStore.getState()
   const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`
   ws = new WebSocket(url)
   ws.onopen = () => useStore.setState({ connected: true })
   ws.onclose = () => { useStore.setState({ connected: false }); setTimeout(connect, 1500) }
-  ws.onmessage = (ev) => {
-    const msg = JSON.parse(ev.data)
+  ws.onmessage = (ev) => handleMessage(JSON.parse(ev.data))
+}
+
+function handleMessage(msg: any) {
+  {
     if (msg.type === 'hello' || msg.type === 'status') useStore.setState({ status: msg.status })
     else if (msg.type === 'frame') { useStore.getState().applyFrame(msg) }
     else if (msg.type === 'forked') {
@@ -122,5 +135,4 @@ export function connect() {
       })
     } else if (msg.type === 'batch') { useStore.setState({ batchJob: { ...(useStore.getState().batchJob || {}), ...msg.job } }) }
   }
-  void st
 }
