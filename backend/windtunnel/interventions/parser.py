@@ -429,6 +429,16 @@ def rule_parse(text: str) -> ChangePlan:
         itypes.append(itype)
         default_months.append(dm)
         changes.extend(chs)
+    # one clause restating another ("remove a management layer and increase team autonomy") must not apply it twice
+    merged: list[dict[str, Any]] = []
+    for ch in changes:
+        dup = next((m for m in merged if m["operation"] == ch["operation"] and m.get("target") == ch.get("target")
+                    and ch["operation"] in ("remove_management_layer", "merge_teams", "freeze_hiring", "enable_automation")), None)
+        if dup is None:
+            merged.append(ch)
+        elif ch["operation"] == "remove_management_layer":
+            dup["autonomy_gain"] = max(dup.get("autonomy_gain", 0.3), ch.get("autonomy_gain", 0.3))
+    changes = merged
     # protected groups shouldn't also be targets
     for ch in changes:
         tg = ch.get("target")

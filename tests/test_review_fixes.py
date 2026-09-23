@@ -154,3 +154,27 @@ def test_supervision_slips_under_pressure():
     cov = [min((x["teams"][t]["ai_supervision_coverage"] for t in x["teams"] if x["teams"][t]["ai_agents"] > 0), default=1.0)
            for x in i.metrics_history]
     assert sum(1 for c in cov if c < 0.9) >= 3
+
+
+def test_every_scenario_chip_changes_something():
+    """Each shipped scenario must diverge from the baseline — the AI-automation chip once did nothing at all, silently,
+    because teams were never enabled for automation."""
+    from windtunnel.service import SCENARIOS
+    for sc in SCENARIOS:
+        p = rule_parse(sc["text"])
+        ops = [c.operation for c in p.changes]
+        assert len(ops) == len(set(ops)) or sc["id"] == "ai_supervisors", (sc["name"], ops)
+        b = World("prototype", 7, "b", record_frames=False); b.run(3)
+        i = b.fork("i"); schedule_plan(i, p)
+        for _ in range(18):
+            b.step(); i.step()
+        assert len(analysis.classify_effects(i, b, 0.5)["effects"]) >= 3, sc["name"]
+
+
+def test_automation_programme_reaches_its_target_teams():
+    b = World("prototype", 7, "b", record_frames=False); b.run(3)
+    i = b.fork("i"); schedule_plan(i, rule_parse("Automate 40% of routine finance and operations work over 18 months."))
+    for _ in range(36):
+        b.step(); i.step()
+    assert i.teams["operations"].automation_level > 0.2 and i.teams["finance"].automation_level > 0
+    assert i.metrics_history[-1]["teams"]["operations"]["workload"] < 0.9 * b.metrics_history[-1]["teams"]["operations"]["workload"]

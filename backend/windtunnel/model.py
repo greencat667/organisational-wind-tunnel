@@ -150,6 +150,7 @@ class Team:
     downstream_defects_this_month: int = 0     # hidden defects from rushed/unapproved work that surfaced here
     baseline_headcount: int = 0
     automation_level: float = 0.0     # fraction of routine hours removed by automation (0..1)
+    automation_target: float = 0.0            # share of routine work an automation programme aims to automate (0 = no programme)
     automation_pipeline: list[tuple[int, float]] = field(default_factory=list)  # (ready_month, level)
     # AI agent pool (non-human capacity). Agents do routine work at ai_capacity_hours/month, need supervision hours
     # from humans, and a share of their output fails and returns to humans as exceptions (rework).
