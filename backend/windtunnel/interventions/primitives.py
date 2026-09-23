@@ -296,7 +296,8 @@ def apply_action(world: "World", emp: "Employee", d: "AgentDecision", cause: int
         return
 
     if a == "automate_task":
-        level = 0.2
+        pending = sum(lv for _, lv in team.automation_pipeline)
+        level = round(min(0.2, max(0.05, team.automation_target - team.automation_level - pending)), 3)
         hours = cfg.automation_implementation_hours_per_level * level
         # implementation effort is real work: create an internal project item on the team's own queue
         p = world.internal_process(team.id)
@@ -532,8 +533,11 @@ def apply_change(world: "World", change: dict[str, Any]) -> None:
         return
 
     if op == "enable_automation":
+        # the programme sets a target; managers then decide when to invest in each step (automate_task), and each step
+        # is real implementation work before it goes live. Phased plans raise the target a step at a time.
         for tid in targets:
-            world.teams[tid].autonomy = world.teams[tid].autonomy  # no-op; flag read via applied_changes
+            t = world.teams[tid]
+            t.automation_target = min(0.8, t.automation_target + float(change.get("amount") or 0.4))
             world.intervention_targets.add(tid)
         world.emit("automation_programme", "intervention", "enable_automation", list(targets), {}, {"target_level": change.get("amount", 0.4)},
                    causes, f"Automation programme enabled for {len(targets)} teams", significant=True)

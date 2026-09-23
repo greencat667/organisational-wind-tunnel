@@ -37,7 +37,7 @@ from .orggen import GRADE_SALARY, generate_organisation, productive_hours
 
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 # event kinds that change a team's state and may therefore be cited as causes of later threshold events
-STATE_CHANGING_KINDS = {"intervention", "capacity_reduced", "capacity_increased", "role_removed", "employee_left", "employee_hired", "internal_move",
+STATE_CHANGING_KINDS = {"intervention", "automation_programme", "capacity_reduced", "capacity_increased", "role_removed", "employee_left", "employee_hired", "internal_move",
                         "work_transferred", "work_redistributed", "work_cancelled", "work_dropped", "team_protected", "overtime_approved",
                         "vacancy_blocked", "post_not_replaced", "hiring_freeze", "manager_changed", "absence", "team_merged", "layer_removed",
                         "demand_changed", "budget_changed", "hours_changed", "shock", "automation_live", "ai_agents_live", "ai_incident",
@@ -266,8 +266,9 @@ class World:
         return sum(1 for w in q if self.processes[w.process_id].frontline) / len(q)
 
     def automation_enabled(self, team: Team) -> bool:
-        return any(c.get("op") == "enable_automation" and self.resolve_team(c.get("team", "")) == team.id
-                   for c in self.applied_changes) if hasattr(self, "applied_changes") else False
+        # (this used to look for a "team" key that plan changes never have — they use "target" — so no team was ever
+        # enabled and the AI-automation scenario did nothing)
+        return team.automation_target > 0.0
 
     # ----------------------------------------------------------------- warm start
     def _warm_start(self) -> None:
@@ -766,7 +767,7 @@ class World:
             team_causes = self.recent_team_causes(t.id)
             lost_staff = any(self.events[i].kind == "employee_left" for i in team_causes)
             backlog_months = t.backlog_hours / max(1.0, t.capacity_hours)
-            restructured = any(self.events[i].kind in ("intervention", "capacity_reduced", "team_merged", "reporting_changed")
+            restructured = any(self.events[i].kind in ("intervention", "capacity_reduced", "team_merged", "reporting_changed", "automation_programme")
                                and self.events[i].month >= self.month - 1 for i in team_causes)
             for m in members:
                 trig = []
@@ -795,11 +796,14 @@ class World:
                         trig.append("ai_exceptions_high")
                     if t.ai_supervision_coverage < 0.8:
                         trig.append("supervision_gap")
+                if (m.id == t.manager_id and self.automation_enabled(t) and not t.automation_pipeline
+                        and t.automation_level + 0.02 < t.automation_target):
+                    trig.append("automation_step_due")     # a committed programme keeps asking for the next step
                 if not trig and self._r("periodic", m.id) < cfg.periodic_decision_fraction:
                     trig.append("periodic")
                 if trig:
                     kind = "manager" if m.id == t.manager_id else "employee"
-                    if kind == "manager" and not any(x in trig for x in ("team_backlog_high", "colleague_left", "restructure", "periodic", "manager_changed", "ai_incident", "ai_exceptions_high", "supervision_gap", "ai_introduced")) and t.workload < 1.05:
+                    if kind == "manager" and not any(x in trig for x in ("team_backlog_high", "colleague_left", "restructure", "periodic", "manager_changed", "ai_incident", "ai_exceptions_high", "supervision_gap", "ai_introduced", "automation_step_due")) and t.workload < 1.05:
                         continue
                     candidates.append((m, trig, team_causes, kind))
         # prioritise: managers first, then most overloaded; cap evaluations per team and per month
@@ -883,7 +887,7 @@ class World:
                 acts.append("escalate_up")
             if queue_items:
                 acts.append("reprioritise")
-            if self.automation_enabled(team) and team.automation_level < 0.6 and not team.automation_pipeline:
+            if self.automation_enabled(team) and team.automation_level + 0.02 < team.automation_target and not team.automation_pipeline:
                 acts.append("automate_task")
             if team.ai_agents > 0 and team.ai_paused_until < self.month:
                 acts.append("pause_ai_agents")
