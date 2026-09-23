@@ -67,6 +67,12 @@ class Employee:
     turnover_intention: float = 0.05
     onboarding_months_left: int = 0
     effort_level: float = 1.0     # multiplier from decisions (0.7..1.15)
+    fatigue: float = 0.0          # accumulated from sustained overtime; decays slowly (behaviour.py)
+    habit: Optional[str] = None   # coping strategy carried forward without a fresh decision (behaviour.py)
+    habit_until: int = -1
+    habit_event: Optional[int] = None
+    habit_overtime_hours: float = 0.0
+    last_decision_event: Optional[int] = None
 
     relationships: dict[str, float] = field(default_factory=dict)  # informal ties
     memory: list[MemoryTrace] = field(default_factory=list)
@@ -140,6 +146,8 @@ class Team:
     cost_pay_month: float = 0.0
     cost_overtime_month: float = 0.0
     cost_ai_month: float = 0.0
+    norms: dict = field(default_factory=dict)   # coping behaviour -> share of the team doing it, slow-moving (behaviour.py)
+    downstream_defects_this_month: int = 0     # hidden defects from rushed/unapproved work that surfaced here
     baseline_headcount: int = 0
     automation_level: float = 0.0     # fraction of routine hours removed by automation (0..1)
     automation_pipeline: list[tuple[int, float]] = field(default_factory=list)  # (ready_month, level)
@@ -239,6 +247,10 @@ class WorkItem:
     ai_exception: bool = False    # bounced back to humans by AI
     ai_silent_error: bool = False # carries a hidden AI defect that will surface at the next stage
     ai_approved: bool = False     # approval delegated to AI
+    workaround_cause: Optional[int] = None   # decision event that marked this item to skip its approval
+    hidden_defect: bool = False   # rushed or unapproved work carrying a defect that surfaces later (behaviour.py)
+    defect_cause: Optional[int] = None
+    defect_origin: Optional[str] = None
     rng_key: str = ""             # stable common-random-numbers key (process, month, arrival index) — see World._wkey
 
 

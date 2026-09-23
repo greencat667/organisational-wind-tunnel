@@ -13,8 +13,9 @@ Do not use it for: predicting specific employees · performance assessment · HR
 * Small decision models are biased by question/tool wording (documented in LAYA.md); calibration and
   guards reduce but do not remove this. Compare engines rather than trusting one.
 * Employees are one-dimensional agents with ~10 actions; real behaviour is richer and stranger.
-* Outcomes depend far more on organisational physics than on individual choices: swapping the rules for Laya changed
-  86% of decisions but hardly moved the results (see VALIDATION.md). Individual actions may be too weakly coupled.
+* Individual choices now carry forward (habits, norms, fatigue, hidden defects — see SIMULATION_MODEL.md), and how a
+  team copes changes its outcomes substantially. One ordinary officer's choices still move their team's numbers only a
+  little — a manager's move them a lot — which may be realistic but is a model assumption, not a finding.
 * Work is modelled as hours; quality, creativity and relationships are only crudely represented.
 * The Apple model can mis-read an intervention; always check the interpreted plan before running (RUN / EDIT / CANCEL).
   The rule-based parser handles one change per clause ("cut X and hire Y"), negations and protection clauses, and says

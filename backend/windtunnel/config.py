@@ -25,6 +25,19 @@ class SimConfig:
     low_priority_expiry_months: int = 3        # low-priority items this long past deadline are dropped (counted as lost work)
     max_allocation_ratio: float = 2.0          # at most ~2 months of work is planned onto one person in a month; the rest waits in the team queue
     max_error_probability: float = 0.25        # ceiling on the per-stage error (rework) probability, however stretched the person
+    # how choices outlast the month (behaviour.py)
+    habit_months: int = 3                      # a coping choice (cut corners, overtime) carries on this long while under pressure
+    habit_min_workload: float = 0.95           # …and stops once personal workload falls below this
+    habit_fatigue_limit: float = 0.35          # an overtime habit ends once fatigue reaches this (people can't sustain it)
+    norm_adapt: float = 0.25                   # monthly pull of a team norm towards the share of the team doing it
+    norm_event_threshold: float = 0.3          # crossing this is a "becoming normal" timeline event
+    fatigue_decay: float = 0.8                 # monthly retention of fatigue
+    fatigue_per_overtime_month: float = 0.12   # fatigue added by a month at the overtime cap (steady state at the cap ≈ 0.6)
+    defect_probability_rushed: float = 0.2     # chance a stage finished while cutting corners hides a defect
+    defect_probability_bypass: float = 0.15    # chance a skipped approval lets a defect through
+    defect_rework_share: float = 0.5           # rework, as a share of the stage's hours, when a hidden defect surfaces
+    fatigue_stress: float = 0.3                # stress target added at full fatigue
+    fatigue_turnover: float = 0.25             # turnover-intention target added at full fatigue
     max_arrival_total_multiplier: float = 3.0  # safety: cap arrivals relative to calibrated demand
     # psychology
     stress_adapt: float = 0.35
@@ -65,7 +78,10 @@ class SimConfig:
     info_share_base: float = 0.35
     # external
     job_market: float = 0.5                    # 0 = no outside options, 1 = very easy to leave
-    baseline_exit_hazard: float = 0.007        # monthly probability of leaving for external/life reasons (~8%/yr), scaled by turnover intention
+    baseline_exit_hazard: float = 0.0056       # monthly probability of leaving for external/life reasons, scaled by turnover intention (~8%/yr in a calm org)
+    exit_intention_multiplier: float = 8.0     # hazard × (1 + this × turnover intention): how much the wish to leave (strain, fatigue,
+                                               # low morale) drives actual leaving. Was 3 with a 0.0070 base; rebalanced so a calm
+                                               # organisation keeps the same turnover while a strained one loses noticeably more
 
     def to_dict(self) -> dict:
         return asdict(self)

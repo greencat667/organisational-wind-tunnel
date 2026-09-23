@@ -67,8 +67,9 @@ or decisions differ from rules:
 If `fm` isn't on your machine, the parser detects that immediately and uses rules with no delay or timeout — nothing
 to configure. To try a decision model instead of rules: `WINDTUNNEL_ENGINE=laya ./windtunnel.sh`, or pick the engine
 per experiment in the app (Saved → New experiment) or per batch (Many worlds). Rules stay the default: in a head-to-head
-test Laya changed which actions agents took but not the outcomes, at ~200× the run time (see
-[docs/VALIDATION.md](docs/VALIDATION.md#decision-engines-compared)), so treat it as a sensitivity check.
+test Laya chose differently 89% of the time at ~50–200× the run time, and its outcomes differ mainly because of a
+wording bias towards cutting corners (see [docs/VALIDATION.md](docs/VALIDATION.md#decision-engines-compared)), so treat
+it as a sensitivity check.
 `WINDTUNNEL_TEMPLATE=charity500` switches the synthetic organisation from 100 to ~500 people. Details, measured
 latency and known pitfalls of each are in [docs/APPLE_FOUNDATION_MODELS.md](docs/APPLE_FOUNDATION_MODELS.md),
 and [docs/LAYA.md](docs/LAYA.md). (A second model, Cactus Needle 3, was removed in September 2026: slow, unstable on
@@ -89,7 +90,7 @@ them.
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q tests     # 51 tests: physics, invariants, determinism, forking, interventions, parser safety, causality, AI mechanics, store, adapters
+.venv/bin/python -m pytest -q tests     # 57 tests: physics, invariants, determinism, forking, interventions, parser safety, causality, AI mechanics, store, adapters
 (cd frontend && npm run smoke)          # Playwright end-to-end smoke test against the real servers
 ```
 

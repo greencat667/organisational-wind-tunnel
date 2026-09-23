@@ -9,11 +9,11 @@ from .model import Event, to_dict
 
 # team-level metrics we compare between worlds
 TEAM_METRICS = ["backlog_months", "queue", "workload", "headcount", "vacancies", "management_load", "morale", "stress",
-                "turnover_12m", "errors", "transfers_in", "approvals_waiting", "completed", "dropped", "cost_month",
+                "turnover_12m", "errors", "transfers_in", "approvals_waiting", "completed", "dropped", "cost_month", "defects", "norm_cutting_corners", "norm_overtime", "fatigue",
                 "ai_exceptions", "downstream_ai_errors", "supervisors"]
 ORG_METRICS = ["backlog_months", "queue_items", "delivery", "cycle_time", "overdue", "workload", "stress", "morale",
                "turnover_12m", "cost_ytd", "management_load", "approvals_waiting", "cooperation", "information_reach",
-               "informal_ties", "errors", "headcount", "vacancies", "dropped", "ai_capacity_share", "downstream_ai_errors",
+               "informal_ties", "errors", "defects", "fatigue", "headcount", "vacancies", "dropped", "ai_capacity_share", "downstream_ai_errors",
                "deskilling_index", "supervisors"]
 
 
@@ -161,9 +161,9 @@ def divergence(base_hist: list[dict], int_hist: list[dict], intervention_month: 
 
 
 _COUNT_METRICS = {"turnover_12m", "vacancies", "headcount", "queue", "queue_items", "transfers_in", "approvals_waiting", "errors",
-                  "completed", "dropped", "overdue", "cooperation", "informal_ties", "ai_exceptions", "downstream_ai_errors", "supervisors"}
+                  "completed", "dropped", "overdue", "cooperation", "informal_ties", "ai_exceptions", "downstream_ai_errors", "supervisors", "defects"}
 _RATIO_METRICS = {"backlog_months", "delivery", "workload", "stress", "morale", "management_load", "information_reach", "cycle_time",
-                  "ai_capacity_share", "deskilling_index"}
+                  "ai_capacity_share", "deskilling_index", "fatigue", "norm_cutting_corners", "norm_overtime"}
 
 
 def _mean(xs):
@@ -275,7 +275,11 @@ _METRIC_EVENT_KINDS = {
     "vacancies": ["vacancy_opened", "vacancy_blocked", "hiring_freeze"],
     "stress": ["backlog_threshold", "overtime", "employee_left"],
     "morale": ["employee_left", "backlog_threshold", "capacity_reduced"],
-    "errors": ["rework", "quality_reduced", "workaround"],
+    "errors": ["defect_surfaced", "rework", "quality_reduced", "workaround"],
+    "defects": ["defect_surfaced", "complaint", "norm_shift", "quality_reduced", "workaround"],
+    "norm_cutting_corners": ["norm_shift", "quality_reduced"],
+    "norm_overtime": ["norm_shift", "overtime"],
+    "fatigue": ["overtime", "norm_shift"],
     "transfers_in": ["work_transferred", "work_redistributed"],
     "approvals_waiting": ["management_overload", "workaround"],
     "dropped": ["work_dropped"],

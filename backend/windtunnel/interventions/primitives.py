@@ -118,6 +118,7 @@ def apply_action(world: "World", emp: "Employee", d: "AgentDecision", cause: int
         for w in queue_items:
             if world._next_stage_is_approval(w):
                 w.workaround = True
+                w.workaround_cause = cause
                 n += 1
                 if n >= 3:
                     break
@@ -134,7 +135,9 @@ def apply_action(world: "World", emp: "Employee", d: "AgentDecision", cause: int
 
     if a == "reduce_quality":
         emp.effort_level = 1.1   # more throughput...
-        emp.current_behaviour = "reduce_quality"   # ...more errors (see _error_occurs)
+        emp.current_behaviour = "reduce_quality"   # ...more errors (see _error_occurs) and hidden defects (behaviour.py)
+        # cutting corners sits badly with people who care about the work: a small morale cost, larger for the committed
+        emp.memory.append(MemoryTrace(world.month, "cut_corners", -0.12 * emp.commitment, 0.6))
         world.emit("quality_reduced", emp.id, "reduce_quality", [emp.id, team.id], {}, {}, [cause], f"{emp.name} cut corners to get through work")
         return
 

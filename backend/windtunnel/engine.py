@@ -25,7 +25,7 @@ import time
 from collections import defaultdict
 from typing import Any, Optional
 
-from . import ai
+from . import ai, behaviour
 from .actions import EMPLOYEE_ACTIONS, MANAGER_ACTIONS
 from .config import SimConfig
 from .context import build_request
@@ -303,6 +303,7 @@ class World:
             t.transfers_in = 0
             t.transfers_out = 0
             t.errors_this_month = 0
+            t.downstream_defects_this_month = 0
             t.approvals_waiting = 0
         for e in self.employees.values():
             e.overtime_hours = 0.0
@@ -312,10 +313,10 @@ class World:
         s = time.perf_counter(); self._apply_scheduled(); timing["interventions"] = time.perf_counter() - s
         s = time.perf_counter(); self._arrivals(); timing["arrivals"] = time.perf_counter() - s
         s = time.perf_counter(); self._people_flow(); timing["people"] = time.perf_counter() - s
-        s = time.perf_counter(); self._absence(); self._recompute_capacity(); self._update_team_aggregates(workload=True); timing["capacity"] = time.perf_counter() - s
+        s = time.perf_counter(); self._absence(); self._recompute_capacity(); behaviour.apply_habits(self); self._update_team_aggregates(workload=True); timing["capacity"] = time.perf_counter() - s
         s = time.perf_counter(); n_dec = self._decisions(); timing["decisions"] = time.perf_counter() - s
         s = time.perf_counter(); self._process_work(); timing["work"] = time.perf_counter() - s
-        s = time.perf_counter(); self._update_team_aggregates(workload=False); self._psychology(); timing["psychology"] = time.perf_counter() - s
+        s = time.perf_counter(); self._update_team_aggregates(workload=False); self._psychology(); behaviour.update_norms(self); timing["psychology"] = time.perf_counter() - s
         s = time.perf_counter(); ai.monthly_learning_and_atrophy(self); self._information(); timing["information"] = time.perf_counter() - s
         s = time.perf_counter(); self._finance(); timing["finance"] = time.perf_counter() - s
         s = time.perf_counter()
@@ -413,7 +414,7 @@ class World:
         # external/life-event exits: a seeded hazard, amplified by turnover intention (organisational physics, not AI)
         for e in list(self.employees.values()):
             if e.status == "active" and self.month > 0:
-                hz = cfg.baseline_exit_hazard * (1.0 + 3.0 * e.turnover_intention) * (0.5 + cfg.job_market)
+                hz = cfg.baseline_exit_hazard * (1.0 + cfg.exit_intention_multiplier * e.turnover_intention) * (0.5 + cfg.job_market)
                 if self._r("exit", e.id) < hz:
                     e.status = "leaving"
                     e.leaving_month = self.month + cfg.turnover_notice_months
@@ -957,6 +958,7 @@ class World:
         })
         from .interventions.primitives import apply_action
         apply_action(self, emp, decision, ev.id)
+        behaviour.record_choice(self, emp, decision.action, ev.id)
 
     def _route(self, d: AgentDecision, req: DecisionRequest) -> AgentDecision:
         """Confidence routing: high -> execute argmax; medium -> sample; low -> conservative heuristic."""
@@ -1088,6 +1090,13 @@ class World:
                         self._advance(w, t)
                         continue
                     self._flows.append({"item": w.id, "from": t.id, "to": t.id, "kind": w.kind, "priority": w.priority, "exception": True})
+                if stage.approval and w.workaround:
+                    # the approval is skipped (it used to be silently re-required: moving the item cleared the flag)
+                    w.workaround = False
+                    w.remaining_hours = 0.0
+                    behaviour.bypass_defect(self, w, w.workaround_cause, t.id)
+                    self._advance(w, t)
+                    continue
                 if stage.approval and not w.workaround:
                     need = stage.hours_mean
                     mgr = self.employees.get(t.manager_id) if t.manager_id else None
@@ -1157,6 +1166,7 @@ class World:
                         self.emit("rework", assignee.id, "error", [assignee.id, t.id], {}, {"item": w.id, "kind": w.kind},
                                   self.recent_emp_causes(assignee.id, months=1, limit=1), f"Error on {w.kind} in {t.name}; rework required")
                         continue
+                    behaviour.maybe_defect(self, assignee, w)
                     self._advance(w, t)
                 else:
                     still.append(w.id)
@@ -1194,6 +1204,8 @@ class World:
         if w.stage_index + 1 >= len(p.stages):
             if w.ai_silent_error:
                 ai.final_stage_silent_error(self, w, from_team)
+            if w.hidden_defect:
+                behaviour.surface_after_delivery(self, w, from_team)
             w.status = "done"
             w.completed_month = self.month
             w.assignee_id = None
@@ -1215,9 +1227,11 @@ class World:
         w.remaining_hours = w.stage_hours
         w.status = "queued"
         w.assignee_id = None
-        w.workaround = False
+        w.workaround = w.workaround and stage.approval     # a workaround applies to the approval stage it was meant for
         if w.ai_silent_error:
             ai.surface_silent_error(self, w, self.teams[new_team], old_team)
+        if w.hidden_defect:
+            behaviour.surface_at_next_stage(self, w, self.teams[new_team])
         if old_team != new_team:
             self.teams[new_team].queue.append(w.id)
             w.path.append((self.month, new_team))
@@ -1255,13 +1269,14 @@ class World:
             mgr = self.employees.get(t.manager_id) if t.manager_id else None
             mgr_avail = max(0.0, 1.0 - t.management_load) if mgr and mgr.status == "active" else 0.0
             for m in members:
+                behaviour.update_fatigue(self, m)
                 mem_val = sum(tr.valence * tr.weight for tr in m.memory)
                 for tr in m.memory:
                     tr.weight *= cfg.memory_decay
                 m.memory = [tr for tr in m.memory if tr.weight > 0.05]
                 target_stress = clamp(0.15 + 0.5 * max(0.0, m.workload - 0.9) + 0.15 * (m.overtime_hours / cfg.max_overtime_hours)
                                       + 0.2 * max(0.0, min(backlog_m, 3.0) - 0.6) + 0.1 * (1.0 - mgr_avail) - 0.05 * (m.morale - 0.5)
-                                      - 0.1 * m.adaptability * max(0.0, m.workload - 1.0))
+                                      - 0.1 * m.adaptability * max(0.0, m.workload - 1.0) + cfg.fatigue_stress * m.fatigue)
                 m.stress = clamp(m.stress + cfg.stress_adapt * (target_stress - m.stress))
                 target_morale = clamp(0.72 - 0.35 * m.stress + 0.15 * (m.trust_management - 0.5) + 0.1 * (t.morale - m.morale)
                                       + 0.2 * clamp(mem_val, -1, 1) + 0.05 * (m.engagement - 0.5))
@@ -1279,11 +1294,11 @@ class World:
                     m._overloaded_last = False
                     m.trust_management = clamp(m.trust_management + 0.005)
                 m._prev_workload = m.workload
-                ti_target = clamp(0.03 + 0.5 * max(0.0, m.stress - 0.5) + 0.45 * max(0.0, 0.5 - m.morale)
+                ti_target = clamp(0.03 + 0.6 * max(0.0, m.stress - 0.35) + 0.45 * max(0.0, 0.5 - m.morale)
                                   + 0.1 * (1.0 - m.commitment) + 0.1 * cfg.job_market - 0.1 * m.institutional_knowledge
-                                  - 0.05 * (m.trust_management - 0.5))
+                                  - 0.05 * (m.trust_management - 0.5) + cfg.fatigue_turnover * m.fatigue)
                 m.turnover_intention = clamp(m.turnover_intention + 0.3 * (ti_target - m.turnover_intention))
-                m.absence_probability = clamp(0.04 + 0.08 * max(0.0, m.stress - 0.6), 0.01, 0.3)
+                m.absence_probability = clamp(0.04 + 0.08 * max(0.0, m.stress - 0.6) + 0.08 * m.fatigue, 0.01, 0.3)
                 # influence grows with help given
                 m.influence = clamp(m.influence + 0.01 * m.help_given - 0.002)
                 m.help_given = 0
@@ -1415,6 +1430,10 @@ class World:
                 "transfers_in": t.transfers_in,
                 "transfers_out": t.transfers_out,
                 "errors": t.errors_this_month,
+                "defects": t.downstream_defects_this_month,
+                "norm_cutting_corners": round(t.norms.get("reduce_quality", 0.0), 3),
+                "norm_overtime": round(t.norms.get("work_overtime", 0.0), 3),
+                "fatigue": round(sum(m.fatigue for m in self.active_members(t)) / max(1, len(self.active_members(t))), 3),
                 "dropped": getattr(t, "expired_this_month", 0),
                 "morale": round(t.morale, 3),
                 "stress": round(t.stress, 3),
@@ -1463,6 +1482,8 @@ class World:
             "information_reach": round(sum(reach) / len(reach), 3) if reach else 0.0,
             "informal_ties": sum(len(e.relationships) for e in active),
             "errors": sum(t.errors_this_month for t in self.teams.values()),
+            "defects": sum(t.downstream_defects_this_month for t in self.teams.values()),
+            "fatigue": round(sum(e.fatigue for e in active) / max(1, n), 3),
             "dropped": sum(getattr(t, "expired_this_month", 0) for t in self.teams.values()),
             "ai_agents": round(sum(t.ai_agents for t in self.teams.values()), 1),
             "ai_exceptions": sum(t.ai_exceptions_this_month for t in self.teams.values()),
