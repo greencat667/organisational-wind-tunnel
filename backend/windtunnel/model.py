@@ -55,6 +55,7 @@ class Employee:
     hours_worked: float = 0.0     # hours actually spent on work items this month
     assigned_hours: float = 0.0   # hours of queued work allocated to this person this month (drives personal workload)
     overtime_hours: float = 0.0
+    cost_month: float = 0.0       # pay (+ overtime pay) this month
     stress: float = 0.2
     morale: float = 0.7
     engagement: float = 0.7
@@ -135,6 +136,10 @@ class Team:
     turnover_12m: int = 0
     vacancies: list[Vacancy] = field(default_factory=list)
     spend_ytd: float = 0.0
+    cost_month: float = 0.0                  # this month's spend: pay + overtime + AI running cost (set in World._finance)
+    cost_pay_month: float = 0.0
+    cost_overtime_month: float = 0.0
+    cost_ai_month: float = 0.0
     baseline_headcount: int = 0
     automation_level: float = 0.0     # fraction of routine hours removed by automation (0..1)
     automation_pipeline: list[tuple[int, float]] = field(default_factory=list)  # (ready_month, level)

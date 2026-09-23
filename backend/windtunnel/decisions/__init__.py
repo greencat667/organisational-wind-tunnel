@@ -16,8 +16,8 @@ def make_engine(name: str, **kwargs) -> AgentDecisionEngine:
         from .laya_engine import LayaDecisionEngine
         return LayaDecisionEngine(**kwargs)
     if name == "needle":
-        from .needle_engine import NeedleDecisionEngine
-        return NeedleDecisionEngine(**kwargs)
+        raise ValueError("the Needle engine was removed in Sept 2026 (slow, unstable on long runs, no added value over "
+                         "rules or Laya — see docs/VALIDATION.md); use 'heuristic' or 'laya'")
     if name == "recorded":
         return RecordedDecisionEngine(**kwargs)
     raise ValueError(f"unknown decision engine {name!r}")

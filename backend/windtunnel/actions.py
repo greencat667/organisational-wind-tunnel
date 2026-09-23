@@ -1,7 +1,7 @@
 """Bounded action catalogue shared by all decision engines.
 
 Each action has: id, who may take it, a one-line question (used for Laya ``noul`` questions),
-a tool docstring (used for Needle tools) and a short label for the UI. The *effects* of actions
+a longer description and a short label for the UI. The *effects* of actions
 live in ``engine.apply_action`` and are deterministic.
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ class ActionSpec:
     kind: str          # employee | manager | both
     label: str
     question: str      # Laya noul instruction
-    tool_doc: str      # Needle tool docstring
+    tool_doc: str      # longer description of the action (documentation; originally the Needle tool docstring)
     conservative: bool = False   # safe default when confidence is low
 
 

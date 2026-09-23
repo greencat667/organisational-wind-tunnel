@@ -2,7 +2,7 @@
 
 Agents never see the whole organisation. They see: their own state, their team, their
 manager's availability, a few relationships, relevant work, recent organisational changes.
-Everything is numbers or short labels so prompts stay tiny for Laya/Needle.
+Everything is numbers or short labels so prompts stay tiny for Laya.
 """
 from __future__ import annotations
 

@@ -1356,12 +1356,17 @@ class World:
                 for tid in d.team_ids:
                     self.teams[tid].spend_ytd = 0.0
         for t in self.teams.values():
-            monthly = 0.0
+            pay = overtime = 0.0
             for m in self.active_members(t):
-                monthly += m.salary / 12.0 * (m.contracted_hours / cfg.monthly_hours)
+                m.cost_month = m.salary / 12.0 * (m.contracted_hours / cfg.monthly_hours)
+                pay += m.cost_month
                 if m.overtime_hours > 0 and t.overtime_allowed:
-                    monthly += (m.salary / 12.0 / cfg.monthly_hours) * m.overtime_hours * cfg.overtime_cost_multiplier
-            monthly += t.ai_agents * t.ai_monthly_cost_per_agent
+                    ot = (m.salary / 12.0 / cfg.monthly_hours) * m.overtime_hours * cfg.overtime_cost_multiplier
+                    m.cost_month += ot
+                    overtime += ot
+            ai_cost = t.ai_agents * t.ai_monthly_cost_per_agent
+            monthly = pay + overtime + ai_cost
+            t.cost_pay_month, t.cost_overtime_month, t.cost_ai_month, t.cost_month = pay, overtime, ai_cost, monthly
             t.spend_ytd += monthly
             self.departments[t.dept_id].spend_ytd += monthly
         for d in self.departments.values():
@@ -1417,6 +1422,7 @@ class World:
                 "approvals_waiting": t.approvals_waiting,
                 "turnover_12m": t.turnover_12m,
                 "spend_ytd": round(t.spend_ytd),
+                "cost_month": round(t.cost_month),
                 "automation": round(t.automation_level, 2),
                 "ai_agents": round(t.ai_agents, 1),
                 "ai_capacity_hours": round(t.ai_capacity_hours, 1),
@@ -1515,6 +1521,15 @@ class World:
                           [e.id for e in self.events[-40:] if e.kind == "employee_left"][-5:], f"Staff turnover high: {m['turnover_12m']} leavers in 12 months", significant=True)
 
     # --------------------------------------------------------------- rendering
+    def _cost_per_work_hour(self, t: Team) -> Optional[float]:
+        """£ spent per hour of work-item effort this month; None where most time is management (a director team), since
+        the ratio would mostly measure how little of their time goes on queued work."""
+        members = self.active_members(t)
+        worked = sum(m.hours_worked for m in members)
+        if worked < 0.25 * sum(m.contracted_hours for m in members):
+            return None
+        return round(t.cost_month / worked, 1)
+
     def _frame(self) -> dict[str, Any]:
         emps = []
         for e in self.employees.values():
@@ -1522,7 +1537,8 @@ class World:
                 continue
             x, z = self.layout["employees"].get(e.id, (0.0, 0.0))
             emps.append([e.id, e.team_id, round(x, 2), round(z, 2), round(e.workload, 2), round(e.stress, 2), round(e.morale, 2),
-                         e.status, 1 if e.is_manager else 0, e.current_behaviour, len(e.active_tasks), e.onboarding_months_left, e.role_kind])
+                         e.status, 1 if e.is_manager else 0, e.current_behaviour, len(e.active_tasks), e.onboarding_months_left, e.role_kind,
+                         round(e.cost_month), round(e.overtime_hours, 1)])
         teams = []
         for t in self.teams.values():
             tx, tz, r = self.layout["teams"][t.id]
@@ -1533,13 +1549,19 @@ class World:
                           "accepting": t.accepting_transfers, "automation": round(t.automation_level, 2), "function": t.function,
                           "ai_agents": round(t.ai_agents, 1), "ai_incident": t.ai_incident, "ai_paused": t.ai_paused_until >= self.month,
                           "ai_coverage": round(t.ai_supervision_coverage, 2), "ai_exception_rate": round(t.ai_exception_rate, 2) if t.ai_agents else 0,
-                          "supervisors": sum(1 for m in self.active_members(t) if m.role_kind == "supervisor")})
+                          "supervisors": sum(1 for m in self.active_members(t) if m.role_kind == "supervisor"),
+                          # cost view: this month's spend by type, the annual run rate against budget, and £ per hour worked
+                          "cost_month": round(t.cost_month), "cost_pay": round(t.cost_pay_month), "cost_overtime": round(t.cost_overtime_month),
+                          "cost_ai": round(t.cost_ai_month), "budget_ratio": round(t.cost_month * 12 / t.budget_annual, 3) if t.budget_annual > 0 else 0.0,
+                          "cost_per_hour": self._cost_per_work_hour(t)})
         # process paths (team -> team edges with monthly volume) for rendering flows
         return {"month": self.month, "label": self.date_label(), "employees": emps, "teams": teams,
                 "flows": self._flows[:400], "info_flows": self._info_flows[:200],
                 "departments": [{"id": d.id, "name": d.name, "x": round(self.layout["departments"][d.id][0], 2),
                                  "z": round(self.layout["departments"][d.id][1], 2), "r": round(self.layout["departments"][d.id][2], 2),
-                                 "hiring_frozen": d.hiring_frozen} for d in self.departments.values()],
+                                 "hiring_frozen": d.hiring_frozen,
+                                 "spend_ratio": round(d.spend_ytd / max(1, ((self.month - 1) % 12) + 1 if self.month > 0 else 1) * 12 / d.budget_annual, 3)
+                                 if d.budget_annual > 0 else 0.0} for d in self.departments.values()],
                 "new_events": [to_dict(ev) for ev in self.events if ev.month == self.month and ev.significant]}
 
     # ------------------------------------------------------------- fork / save

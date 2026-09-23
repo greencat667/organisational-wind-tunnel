@@ -64,7 +64,7 @@ class Experiment:
             cfg.target_utilisation = utilisation
             if decisions_per_month:
                 cfg.max_decisions_per_month = decisions_per_month          # same cap for every engine = fair comparison
-            elif engine_name in ("laya", "needle"):
+            elif engine_name == "laya":
                 cfg.max_decisions_per_month = int(os.environ.get("WINDTUNNEL_AI_DECISIONS_PER_MONTH", "24"))   # keep AI engines interactive
         else:
             cfg = config                                                    # replaying a saved experiment: its config wins
@@ -89,7 +89,7 @@ class Experiment:
         except Exception as exc:
             eng = make_engine("heuristic")
             self.engine_error = f"{name}: {exc!r}"[:200]
-        return CachedDecisionEngine(eng) if name in ("laya", "needle") else eng
+        return CachedDecisionEngine(eng) if name == "laya" else eng
 
     def worlds(self) -> list[World]:
         return [w for w in (self.baseline, self.intervention) if w is not None]

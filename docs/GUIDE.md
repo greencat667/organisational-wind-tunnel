@@ -196,7 +196,7 @@ batches, use the command line (`scripts/batch_cli.py`, see the README), which al
 ![The Saved tab: new experiment settings, save and export, and saved experiments with load and fork](images/14-saved.png)
 
 * **New experiment** — choose the organisation (100-person prototype or ~500-person charity), seed, decision engine
-  (rules, Laya or Needle), how stretched it starts (slack 65% / normal 75% / lean 85%), and an optional cap on agent
+  (rules or Laya — rules are the default and much faster; Laya is a behaviour sensitivity check), how stretched it starts (slack 65% / normal 75% / lean 85%), and an optional cap on agent
   decisions per month. Same organisation + seed + cap with a different engine is a fair engine comparison.
 * **Save & export** — save the experiment to the local SQLite file; download metrics (CSV), events or decisions (JSON).
 * **load** replays a saved experiment exactly (recorded decisions); **fork…** replays it to a month you choose and
@@ -227,7 +227,27 @@ batches, use the command line (`scripts/batch_cli.py`, see the README), which al
 | **capacity** | Teams and people coloured by workload, blue (spare) → red (overloaded); management-load rings. |
 | **change** | Highlights people currently doing something other than normal work (escalating, working around, helping). |
 | **dependencies** | Emphasises the heaviest process dependencies between teams and management-load rings. |
-| **cost** | Hides process paths for an uncluttered view; cost itself is read from the Cost tile and exports. |
+| **cost** | What everything costs this month — see below. |
+
+### The cost view
+
+![Cost view: a spend tower beside each team, team discs tinted by run rate against budget, department budget lines and people coloured by what they cost](images/16-xray-cost.png)
+
+* **Towers** beside each team show this month's spend, stacked by type: **pay** (grey), **overtime** (amber) and **AI
+  agent running costs** (cyan). Every team, in both worlds, uses the same scale, so taller means more spent. The figure
+  underneath is the monthly total.
+* **Team discs and labels** are tinted by the team's annual run rate against its budget: green under 90%, amber
+  approaching, red past 102% — the point at which the model freezes a department's hiring. Budgets include an 18%
+  non-pay allowance the model doesn't spend, so a normal team runs at around 80%.
+* **Department lines** give each department's projected spend against budget, and say **HIRING FROZEN** when a freeze
+  is in force.
+* **People** are coloured by what they cost a month, from blue (about £2.5k) to gold (£7k and up); anyone working
+  overtime this month shows amber.
+* The label under each team adds **£ per hour worked** — spend divided by hours spent on work items, a rough measure of
+  what the team's output costs. It's left out for the Executive team, where most time is management.
+
+The team inspector has a matching **Cost this month** section: the total and run rate, the split between pay, overtime
+and AI, spend so far this year against the annual budget, and a cost history chart.
 
 ### Colours and shapes
 
@@ -271,7 +291,7 @@ replay a past month · **live** returns to the present · **discard** throws awa
 ![Developer diagnostics: frame rate, tick time, decisions per month, engine, model calls, cache, Apple model status, memory and triggers](images/15-dev-panel.png)
 
 Frame rate, simulation tick time, agent decisions per month and their latency, the engine in use, model calls and
-cache hit rate (for Laya/Needle), Apple model status, memory, active agents and work items per world, and which
+cache hit rate (for Laya), Apple model status, memory, active agents and work items per world, and which
 triggers prompted decisions this month.
 
 ---

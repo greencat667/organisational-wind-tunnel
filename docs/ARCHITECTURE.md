@@ -8,7 +8,7 @@ Browser  (React 18 · TypeScript · React Three Fiber · zustand)           ← 
 Python 3.11 backend (FastAPI + uvicorn) — windtunnel/server.py
    ├─ Experiment: baseline World + intervention World stepped in lock-step (thread pool, asyncio loop)
    ├─ InterventionParser: Apple Foundation Models via `fm serve` (guided JSON) → validated ChangePlan; rule fallback
-   ├─ AgentDecisionEngine: Heuristic | Laya | Needle | Recorded, wrapped in CachedDecisionEngine
+   ├─ AgentDecisionEngine: Heuristic | Laya | Recorded, wrapped in CachedDecisionEngine
    ├─ analysis: causal orders, divergence, emergence, key people, networks, k-means clusters
    ├─ batch: multiprocessing Monte Carlo (no frames), summaries, surprises
    └─ store: SQLite (experiments, runs, metrics, events, decisions, snapshots, batches)
@@ -28,7 +28,6 @@ Renderer and batch runner both consume the same World; frames are only produced 
 | Python for the core | fast to iterate on rules; 100-person org steps in ~5 ms, 500-person in ~50 ms (heuristic engine); batch parallelises with `multiprocessing` |
 | `fm serve` for Apple FM | Apple's first-party CLI (macOS 27, `/usr/bin/fm`) exposes the on-device model as an OpenAI-style Chat Completions server with `response_format: json_schema` guided generation. No Xcode build, no third-party bridge. The official `apple-fm-sdk` Python package exists but needs Xcode; `fm serve` needs nothing. |
 | Laya (`pip install laya`) | non-autoregressive, calibrated `noul`/`choice`/`score` answers in one forward pass on MPS |
-| Cactus Needle 3 (`pip install cactus-needle`) | 8–29 MB native tool-calling model, grammar-constrained output, calibrated confidence |
 | React Three Fiber | declarative scene, instanced meshes for employees/work/info, drei helpers |
 | zustand | tiny store for frames/metrics/events; frames are appended, never mutated |
 | SQLite (stdlib) | zero infrastructure, one local file |
@@ -64,8 +63,8 @@ backend/windtunnel/
   config.py          SimConfig — every tunable physics parameter
   engine.py          World: monthly tick, physics, decisions hook, events, frames, fork, inspectors
   context.py         context compression → DecisionRequest
-  actions.py         bounded action catalogue (questions for Laya, docstrings for Needle)
-  decisions/         base, heuristic, laya_engine, needle_engine, recorded, cache
+  actions.py         bounded action catalogue (questions for Laya, descriptions, labels)
+  decisions/         base, heuristic, laya_engine, recorded, cache
   interventions/     schema (pydantic + flat AFM schema), parser (fm serve + rules), primitives (actions + changes)
   analysis.py        causal orders, why, divergence, effects, emergence, networks, clusters
   batch.py           Monte Carlo runner + summariser
