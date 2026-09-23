@@ -38,6 +38,7 @@ async function interpret(page: Page, text: string) {
 }
 
 test('guide screenshots', async ({ page, request }) => {
+  await page.addInitScript(() => { try { localStorage.setItem('windtunnel.tourSeen', '1') } catch {} })   // skip the first-visit tour offer
   expect((await request.post('/api/experiment', { data: { template: 'prototype', seed: 6, engine: 'heuristic', settle_months: 3 } })).ok()).toBeTruthy()
   await page.goto('/')
   await expect(page.locator('canvas')).toHaveCount(1)
@@ -57,6 +58,7 @@ test('guide screenshots', async ({ page, request }) => {
   await shot(page, '02-interpret')
   await page.getByRole('button', { name: 'RUN EXPERIMENT' }).click()
   await expect(page.getByRole('button', { name: 'discard' })).toBeVisible({ timeout: 10_000 })
+  await page.getByRole('button', { name: 'Dismiss' }).click()          // the "time is running" note
   await advance(page, request, 36)
   await page.getByTitle('Hide panel').click()          // give the split view the full width
   await shot(page, '05-split', 3000)

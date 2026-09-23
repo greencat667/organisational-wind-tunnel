@@ -29,7 +29,9 @@ export function Bottom() {
   const viewMonth = useStore((s) => s.viewMonth)
   const set = useStore((s) => s.set)
   const interpreting = useStore((s) => s.interpreting)
-  const [text, setText] = useState('')
+  const [text, setTextState] = useState('')
+  const textRef = useRef('')
+  const setText = (t: string) => { textRef.current = t; setTextState(t) }
   const [scenarios, setScenarios] = useState<{ id: string; name: string; text: string }[]>([])
   useEffect(() => { api('/scenarios').then(setScenarios).catch(() => {}) }, [])
   const at = (w: 'baseline' | 'intervention') => {
@@ -42,7 +44,17 @@ export function Bottom() {
   const maxMonth = metrics.baseline.length ? metrics.baseline[metrics.baseline.length - 1].month : 0
   const minMonth = metrics.baseline.length ? metrics.baseline[0].month : 0
 
-  const submit = async () => {
+  // the tour's "set up the demo": fill the box and interpret, as if typed
+  const pendingPrompt = useStore((s) => s.pendingPrompt)
+  useEffect(() => {
+    if (!pendingPrompt) return
+    setText(pendingPrompt)
+    set({ pendingPrompt: null })
+    submit(pendingPrompt)
+  }, [pendingPrompt])
+
+  const submit = async (override?: string) => {
+    const text = override ?? textRef.current
     if (!text.trim()) return
     set({ interpreting: true })
     try {
@@ -130,7 +142,7 @@ export function Bottom() {
       <div className="prompt">
         <input placeholder="Describe a change to test… e.g. Reduce administrative capacity by 20% while protecting frontline delivery" value={text}
           onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} />
-        <button className="btn primary" onClick={submit} disabled={interpreting || !text.trim()}>{interpreting ? <span className="spinner" /> : 'SIMULATE CHANGE'}</button>
+        <button className="btn primary" onClick={() => submit()} disabled={interpreting || !text.trim()}>{interpreting ? <span className="spinner" /> : 'SIMULATE CHANGE'}</button>
         {status?.forked && <button className="btn danger" onClick={async () => { await api('/discard', {}); useStore.getState().init() }}>discard</button>}
       </div>
       <div className="scenarios">
