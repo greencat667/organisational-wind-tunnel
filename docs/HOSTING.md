@@ -30,8 +30,11 @@ npm run smoke:static        # end-to-end test of the built site (boots Python, r
 **Cloudflare Pages** (free): create a Pages project connected to the repository with build command
 `cd frontend && npm ci && npm run build:static` and output directory `frontend/dist-static`.
 
-**GitHub Pages** (free for public repositories): enable Pages with *Settings → Pages → Source: GitHub Actions*, then run
-the **Deploy browser version to GitHub Pages** workflow from the Actions tab. It only runs when started by hand.
+**GitHub Pages** (free for public repositories) — this is how <https://greencat667.github.io/organisational-wind-tunnel/>
+is published. With *Settings → Pages → Source: GitHub Actions*, an update is one click: **Actions → Deploy browser
+version to GitHub Pages → Run workflow**. It runs the simulator's tests first, builds the static site and publishes it
+(about 3 minutes); nothing is published if the tests fail. It only runs when started by hand, so merging to `master`
+never changes the live site on its own.
 
 Any other static host works too: upload the contents of `frontend/dist-static`. Assets use relative paths, so the site
 can live at a sub-path.

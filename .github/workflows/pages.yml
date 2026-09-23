@@ -1,5 +1,6 @@
 # Builds the browser-only version (the simulation runs in the visitor's browser via Pyodide) and publishes it to
-# GitHub Pages. Manual only: run it from the Actions tab once Pages is enabled (Settings → Pages → Source: GitHub Actions).
+# GitHub Pages. One click: Actions → "Deploy browser version to GitHub Pages" → Run workflow.
+# Requires Settings → Pages → Source: GitHub Actions. The simulation's tests must pass before anything is published.
 name: Deploy browser version to GitHub Pages
 
 on:
@@ -15,10 +16,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"      # the version Pyodide runs in the browser
+      # the simulator's tests need only these (Laya, FastAPI and the Apple model are local-server extras)
+      - run: pip install "pydantic>=2.8" "pytest>=8.0"
+      - run: python -m pytest -q tests
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5     # fails clearly if Pages isn't set to "GitHub Actions"
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -31,6 +45,7 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: frontend/dist-static
+
   deploy:
     needs: build
     runs-on: ubuntu-latest
