@@ -171,7 +171,8 @@ class Hub:
     def __init__(self):
         self.experiment: Optional[Experiment] = None
         self.clients: set[WebSocket] = set()
-        self.parser = InterventionParser()
+        # WINDTUNNEL_APPLE_FM=0 skips the Apple model entirely (rules only) — useful when `fm` is installed but slow or wedged
+        self.parser = InterventionParser(use_fm=os.environ.get("WINDTUNNEL_APPLE_FM", "1") != "0")
         self.store = Store()
         self.batch_jobs: dict[str, dict[str, Any]] = {}
         self.loop_task: Optional[asyncio.Task] = None

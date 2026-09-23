@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --port 5180",
     "dev:vite": "vite --port 5180 --strictPort",
-    "smoke": "playwright test"
+    "smoke": "playwright test",
+    "docs:screenshots": "playwright test --config playwright.docs.config.ts"
   },
   "dependencies": {
     "@react-three/drei": "^9.117.0",

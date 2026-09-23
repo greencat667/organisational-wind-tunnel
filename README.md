@@ -11,6 +11,8 @@ third-order consequences back to their causes.
 
 [![The Organisational Wind Tunnel: Simulating AI's Second-Order Effects](https://img.youtube.com/vi/U7b4nGF48SU/maxresdefault.jpg)](https://www.youtube.com/watch?v=U7b4nGF48SU)
 
+**New here? Start with the [user guide](docs/GUIDE.md)** — a screenshot walkthrough of the demo and every panel.
+
 ## What it is
 
 ```
@@ -92,6 +94,7 @@ them.
 
 | Doc | Contents |
 |---|---|
+| [docs/GUIDE.md](docs/GUIDE.md) | **user guide**: screenshot walkthrough of the demo, every panel and control, reading results honestly |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | layers, modules, data flow, technology choices and why |
 | [docs/SIMULATION_MODEL.md](docs/SIMULATION_MODEL.md) | every simulation assumption: organisation, work, processes, physics, psychology, information, finance |
 | [docs/AGENT_DECISIONS.md](docs/AGENT_DECISIONS.md) | decision engine abstraction, triggers, context compression, actions, confidence routing, cache |
