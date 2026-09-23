@@ -411,11 +411,14 @@ def apply_change(world: "World", change: dict[str, Any]) -> None:
             team.budget_annual *= (1 - frac * 0.9)
             world.departments[team.dept_id].budget_annual -= team.budget_annual * frac * 0.9 / max(0.01, 1 - frac * 0.9)
             world.intervention_targets.update([tid] + [m for m in team.member_ids])
+            if n_remove == 0:   # a phase whose rounding removes nobody this step: no event, announcement or restructure shock
+                continue
             cap_before = team.capacity_hours
             ev = world.emit("capacity_reduced", "intervention", "reduce_capacity", [tid],
                             {"headcount": len(members) + 1, "capacity_hours": round(cap_before)},
                             {"headcount": len(members) + 1 - n_remove, "removed": n_remove, "capacity_hours": round(cap_before * (len(members) + 1 - n_remove) / max(1, len(members) + 1))},
-                            causes, f"{team.name} reduced by {n_remove} roles ({int(frac*100)}%)", significant=True)
+                            causes, f"{team.name}: {n_remove} {'post' if n_remove == 1 else 'posts'} removed"
+                            + (f" (phase {change['phase']})" if change.get("phase") else ""), significant=True)
             for m in world.active_members(team):
                 m.memory.append(MemoryTrace(world.month, "restructure", -0.35, 1.0))
                 m.trust_management = max(0.0, m.trust_management - 0.08 * (1 - m.change_tolerance))
