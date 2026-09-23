@@ -28,6 +28,43 @@
   intervention, advances 24 months, checks effects, WHY, inspectors and diagnostics through the real server.
 * **Sensitivity sweeps**: `scripts/batch_cli.py --sweep <SimConfig field>=a,b,c` tabulates outcome frequencies per level.
 
+## Decision engines compared
+
+Run 2026-09-23: prototype organisation, seed 6, admin cut (−20%, protecting frontline), 18 months after the fork, the
+same cap of 24 agent decisions per month for every engine, same machine (M5 Max, heavily loaded at the time).
+
+| | Rules (heuristic) | Laya | Cactus Needle 3 |
+|---|---|---|---|
+| Run time, 18 months × 2 worlds | **2 s** | 445 s (+33 s load) | did not finish: 25 min limit hit at month 17 |
+| Agreement with the rules (same situation) | — | 14% | — |
+| Top actions (intervention world) | continue 266 · seek help 59 · overtime 38 · delay 27 | **reduce quality 198** · delay 71 · escalate 56 · continue 49 | — |
+| Asked another team for help | 59 | **0** | — |
+| Stress, baseline → intervention | 0.216 → 0.273 | 0.205 → 0.262 | — |
+| Backlog (months) | 0.09 → 0.21 | 0.07 → 0.19 | — |
+| Delivery | 1.01 → 1.01 | 1.01 → 1.01 | — |
+| Turnover (12 months) | 11 → 11 | 11 → 11 | — |
+| Low-priority work dropped | 0 → 42 | 0 → 39 | — |
+
+What this shows:
+
+* **Different choices, same outcomes.** Laya picked a different action from the rules 86% of the time, yet the effect of
+  the intervention — the difference between the two worlds — came out almost identical on every headline measure. In
+  this model, organisational physics (capacity, queues, approvals, calibration) drives the outcomes far more than which
+  bounded action an individual agent takes.
+* **Where Laya differs, it's wording bias.** It chose *reduce quality* 30× more often than the rules and never chose
+  *seek help* — the same label bias `LAYA.md` documents, surviving the neutral-state calibration. Never seeking help
+  also switches off the cross-team help channel that carries this model's most interesting distant effect.
+* **Needle was unusable at this length.** Time per month rose from about 20 s to about 300 s over the run (the
+  long-run decode slowdown it was known for). It was removed from the project on the strength of this.
+* **The rules are the right default.** They are ~200× faster (which is what makes many-worlds batches and sweeps
+  possible), reproducible, and every choice traces to a rule that can be read and changed. Laya stays as an optional
+  **sensitivity check**: the admin-cut conclusion surviving a very different decision-maker is itself reassuring.
+
+Caveats: one seed and one intervention, 18 months; a loaded machine inflates the model timings but not their ratio.
+And a question this raises rather than answers — if agents' choices barely move the outcomes, individual actions may
+be too weakly coupled to results in this model. Real organisations sometimes turn on individual choices; strengthening
+that coupling (and re-testing with this comparison) is open work.
+
 ## What is *not* validated
 Nothing here has been compared with a real organisation. Parameter values are plausible, not estimated.
 

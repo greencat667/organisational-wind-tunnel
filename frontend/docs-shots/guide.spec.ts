@@ -82,6 +82,16 @@ test('guide screenshots', async ({ page, request }) => {
   // x-ray: capacity
   await page.getByRole('button', { name: 'capacity', exact: true }).click()
   await shot(page, '11-xray-capacity', 2500)
+  // cost view: one world, panel hidden, zoomed in so the towers and labels are legible
+  await page.getByRole('button', { name: 'cost', exact: true }).click()
+  await page.getByRole('button', { name: 'single' }).click()
+  await page.getByTitle('Hide panel').click()
+  await page.mouse.move(720, 330)
+  for (let i = 0; i < 6; i++) { await page.mouse.wheel(0, -300); await page.waitForTimeout(100) }
+  await shot(page, '16-xray-cost', 3000)
+  await page.getByTitle('Show panel').click()
+  await page.getByRole('button', { name: 'split' }).click()
+  await resetView(page)
   await page.getByRole('button', { name: 'work', exact: true }).click()
 
   // many worlds

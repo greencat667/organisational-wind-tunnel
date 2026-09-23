@@ -3,7 +3,9 @@ import { useMemo, useRef, useEffect } from 'react'
 import * as THREE from 'three'
 import type { Frame, EmployeeRow, WorldLabel, XRay } from '../lib/types'
 import { useStore } from '../lib/store'
-import { deptColor, STRESS } from './palette'
+import { deptColor, STRESS, COST_OVERTIME } from './palette'
+
+const COST_LOW = new THREE.Color('#3f6fb8'), COST_HIGH = new THREE.Color('#ffe08a')   // ~£2.5k → ~£7k+ a month
 
 const tmp = new THREE.Object3D()
 const col = new THREE.Color()
@@ -57,6 +59,11 @@ export function Employees({ frame, prev, world, offset, teamDept, xray, t01 }:
       col.copy(deptColor(teamDept[team] || ''))
       if (xray === 'capacity') { col.setHSL(0.6 - 0.6 * clamp01((workload - 0.5) / 1.0), 0.8, 0.55) }
       else if (xray === 'change') { col.set(behaviour === 'working' ? '#4d5a70' : '#ffb566') }
+      else if (xray === 'cost') {
+        // what this person costs a month: cool and dim (~£2.5k) → warm and bright (~£7.5k+); overtime shows amber
+        if ((e[14] ?? 0) > 0) col.copy(COST_OVERTIME)
+        else { const c = clamp01(((e[13] ?? 0) - 2500) / 4500); col.copy(COST_LOW).lerp(COST_HIGH, c) }
+      }
       else { col.lerp(STRESS, clamp01((stress - 0.45) * 1.4)); if (roleKind === 'supervisor') col.lerp(new THREE.Color('#6fd3ff'), 0.55) }
       const bright = 0.55 + 0.45 * morale
       col.multiplyScalar(bright * alpha)

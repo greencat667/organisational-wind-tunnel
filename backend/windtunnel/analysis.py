@@ -9,7 +9,7 @@ from .model import Event, to_dict
 
 # team-level metrics we compare between worlds
 TEAM_METRICS = ["backlog_months", "queue", "workload", "headcount", "vacancies", "management_load", "morale", "stress",
-                "turnover_12m", "errors", "transfers_in", "approvals_waiting", "completed", "dropped",
+                "turnover_12m", "errors", "transfers_in", "approvals_waiting", "completed", "dropped", "cost_month",
                 "ai_exceptions", "downstream_ai_errors", "supervisors"]
 ORG_METRICS = ["backlog_months", "queue_items", "delivery", "cycle_time", "overdue", "workload", "stress", "morale",
                "turnover_12m", "cost_ytd", "management_load", "approvals_waiting", "cooperation", "information_reach",
@@ -280,6 +280,7 @@ _METRIC_EVENT_KINDS = {
     "approvals_waiting": ["management_overload", "workaround"],
     "dropped": ["work_dropped"],
     "cost_ytd": ["hiring_freeze", "capacity_reduced", "employee_hired", "post_not_replaced", "ai_agents_live"],
+    "cost_month": ["capacity_reduced", "overtime", "employee_hired", "post_not_replaced", "ai_agents_live", "hiring_freeze"],
     "downstream_ai_errors": ["ai_quality_leak", "ai_correction", "ai_incident"],
     "ai_exceptions": ["ai_incident", "supervision_gap", "ai_agents_live"],
     "supervisors": ["roles_converted", "staff_retrained"],

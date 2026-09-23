@@ -8,7 +8,7 @@ if [ ! -x .venv/bin/python ]; then
   .venv/bin/python -m pip install -q -r backend/requirements.txt 2>/dev/null || uv pip install --python .venv/bin/python -r backend/requirements.txt
 fi
 if [ ! -d frontend/node_modules ]; then (cd frontend && npm install --no-audit --no-fund); fi
-export WINDTUNNEL_ENGINE="${WINDTUNNEL_ENGINE:-heuristic}"   # heuristic | laya | needle
+export WINDTUNNEL_ENGINE="${WINDTUNNEL_ENGINE:-heuristic}"   # heuristic | laya
 export WINDTUNNEL_TEMPLATE="${WINDTUNNEL_TEMPLATE:-prototype}" # prototype | charity500
 export WINDTUNNEL_SEED="${WINDTUNNEL_SEED:-7}"
 mkdir -p data

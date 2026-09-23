@@ -27,7 +27,7 @@ USER INTERVENTION  →  parser (rules, or an LLM if one's available)  →  valid
 
 * **AI-optional, not AI-dependent.** By default, every decision in the wind tunnel — interpreting your intervention
   and every employee/manager choice — is made by fast, deterministic rules. You can swap either one for a model
-  (Apple's on-device model for interpretation; Laya or Cactus Needle 3 for agent decisions) to see how it changes
+  (Apple's on-device model for interpretation; Laya for agent decisions) to see how it changes
   things, but nothing about running the simulator or reading its output requires a model, a GPU, or an API key.
 * **Consequences are not scripted.** The intervention changes the environment. Agents respond. Their responses
   change the environment for others. Cascades (or their absence) emerge from the rules, not from a script.
@@ -56,23 +56,26 @@ maintaining existing frontline delivery* → **SIMULATE CHANGE** → check the i
 
 ### Optional AI extras (Apple Silicon Mac, macOS 26/27)
 
-Three swappable pieces can replace their rule-based defaults if you want to compare how model-driven interpretation
+Two swappable pieces can replace their rule-based defaults if you want to compare how model-driven interpretation
 or decisions differ from rules:
 
 | Piece | What it replaces | Requires |
 |---|---|---|
 | Apple Foundation Models (`fm serve`) | the rule-based intervention parser | macOS 26/27 with Apple Intelligence enabled |
 | [Laya](https://github.com/NandhaKishorM/laya) (`pip install laya`, Apache-2.0) | the rule-based decision engine | PyTorch; fastest on Apple Silicon (MPS) |
-| [Cactus Needle 3](https://cactuscompute.com/needle) (Apache-2.0) | the rule-based decision engine | its native library; fastest on Apple Silicon |
 
 If `fm` isn't on your machine, the parser detects that immediately and uses rules with no delay or timeout — nothing
-to configure. To try a decision model instead of rules: `WINDTUNNEL_ENGINE=laya ./windtunnel.sh` (or `needle`).
+to configure. To try a decision model instead of rules: `WINDTUNNEL_ENGINE=laya ./windtunnel.sh`, or pick the engine
+per experiment in the app (Saved → New experiment) or per batch (Many worlds). Rules stay the default: in a head-to-head
+test Laya changed which actions agents took but not the outcomes, at ~200× the run time (see
+[docs/VALIDATION.md](docs/VALIDATION.md#decision-engines-compared)), so treat it as a sensitivity check.
 `WINDTUNNEL_TEMPLATE=charity500` switches the synthetic organisation from 100 to ~500 people. Details, measured
 latency and known pitfalls of each are in [docs/APPLE_FOUNDATION_MODELS.md](docs/APPLE_FOUNDATION_MODELS.md),
-[docs/LAYA.md](docs/LAYA.md) and [docs/NEEDLE.md](docs/NEEDLE.md).
+and [docs/LAYA.md](docs/LAYA.md). (A second model, Cactus Needle 3, was removed in September 2026: slow, unstable on
+long runs, and no added value.)
 
-`backend/requirements.txt` installs Laya and Needle by default so the extras work out of the box; if you're on a
-platform where they don't build cleanly, delete those two lines and reinstall — the deterministic path doesn't need
+`backend/requirements.txt` installs Laya by default so the extra works out of the box; if you're on a platform where it
+doesn't build cleanly, delete that line and reinstall — the deterministic path doesn't need
 them.
 
 ## Batch runs from the command line
@@ -98,7 +101,7 @@ them.
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | layers, modules, data flow, technology choices and why |
 | [docs/SIMULATION_MODEL.md](docs/SIMULATION_MODEL.md) | every simulation assumption: organisation, work, processes, physics, psychology, information, finance |
 | [docs/AGENT_DECISIONS.md](docs/AGENT_DECISIONS.md) | decision engine abstraction, triggers, context compression, actions, confidence routing, cache |
-| [docs/LAYA.md](docs/LAYA.md) · [docs/NEEDLE.md](docs/NEEDLE.md) · [docs/APPLE_FOUNDATION_MODELS.md](docs/APPLE_FOUNDATION_MODELS.md) | verified APIs, how each optional model is used, measured latency, pitfalls |
+| [docs/LAYA.md](docs/LAYA.md) · [docs/APPLE_FOUNDATION_MODELS.md](docs/APPLE_FOUNDATION_MODELS.md) | verified APIs, how each optional model is used, measured latency, pitfalls |
 | [docs/AI_SCENARIOS.md](docs/AI_SCENARIOS.md) | *simulated* AI-adoption scenarios (agent pools, supervision, deskilling…) — deterministic, no model involved |
 | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | the O(n²) bottlenecks found and fixed to make 10,000+-employee organisations practical |
 | [docs/VALIDATION.md](docs/VALIDATION.md) | what has been checked, how historical validation would work |
@@ -116,7 +119,7 @@ simulator itself — you don't need any model installed to run these scenarios. 
 ## Status
 
 100-person / 8-team synthetic organisation (a 500-person, 27-team template also ships), real work items flowing
-through 14 processes, monthly simulation, heuristic + Laya + Needle + recorded decision engines, an intervention
+through 14 processes, monthly simulation, heuristic + Laya + recorded decision engines, an intervention
 parser with rule fallback, a Three.js world with instanced employees and animated work/information flow,
 baseline/intervention split universe, time scrubber, event timeline, employee and team inspectors with decision
 replay, effects classifier, emergence detector, WHY chains, Monte Carlo batch runner with clusters and surprises,
@@ -127,5 +130,5 @@ Measured numbers are in the docs.
 ## License
 
 [MIT](LICENSE) for this repository's own code. The optional AI extras are separate projects with their own
-licenses: Laya and Cactus Needle are both Apache-2.0; Apple Foundation Models is Apple's own on-device system
+licenses: Laya is Apache-2.0; Apple Foundation Models is Apple's own on-device system
 service, called over local HTTP and never bundled or redistributed here.

@@ -9,7 +9,7 @@ class AgentDecisionEngine:
 targets + triggers. `AgentDecision` = probabilities over the available actions, confidence, engine name, latency,
 target, auxiliary scores (effort, turnover pressure), raw model output (for replay).
 
-Engines: `HeuristicDecisionEngine` (rules → softmax), `LayaDecisionEngine`, `NeedleDecisionEngine`,
+Engines: `HeuristicDecisionEngine` (rules → softmax), `LayaDecisionEngine`,
 `RecordedDecisionEngine` (replays a decision log; falls back to rules), all wrappable in `CachedDecisionEngine`.
 If an engine raises, the World uses the heuristic engine and flags `fallback`. **The simulator always runs.**
 

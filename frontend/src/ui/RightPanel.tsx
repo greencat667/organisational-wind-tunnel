@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../lib/store'
 import { api } from '../lib/api'
+import { budgetCss } from '../scene/palette'
 
 export function RightPanel() {
   const selection = useStore((s) => s.selection)
@@ -26,6 +27,14 @@ export function RightPanel() {
 }
 
 function Legend() {
+  const xray = useStore((s) => s.xray)
+  if (xray === 'cost') return (
+    <div style={{ marginTop: 12 }}>
+      <div className="legend"><span><i style={{ background: '#c3cbe0' }} />pay</span><span><i style={{ background: '#ffb566' }} />overtime</span><span><i style={{ background: '#6fd3ff' }} />AI agents</span></div>
+      <div className="legend" style={{ marginTop: 6 }}><span><i style={{ background: '#7fe0b0' }} />under 90% of budget</span><span><i style={{ background: '#ffb566' }} />near</span><span><i style={{ background: '#ff7a8a' }} />over 102% (freeze)</span></div>
+      <div className="muted" style={{ marginTop: 8, fontSize: 11 }}>Towers show this month's spend by type, on one scale for every team. Team discs are tinted by annual run rate against budget (budgets include an 18% non-pay allowance the model doesn't spend, so a normal team runs near 80%). Figures are coloured by what each person costs a month, cool → warm; amber figures are on overtime.</div>
+    </div>
+  )
   return (
     <div style={{ marginTop: 12 }}>
       <div className="legend"><span><i style={{ background: '#ffd27a' }} />work item</span><span><i style={{ background: '#ff7a8a' }} />transferred / urgent</span><span><i style={{ background: '#6fd3ff' }} />information</span></div>
@@ -122,7 +131,6 @@ function EmployeeInspector() {
           <pre style={{ fontSize: 10, whiteSpace: 'pre-wrap', color: 'var(--text-dim)', margin: '4px 0', maxHeight: 120, overflow: 'auto' }}>{r.state_text}</pre>
           <div style={{ fontSize: 12 }}>→ <b>{r.action}</b> {r.target || ''} <span className="muted">{JSON.stringify(r.probabilities)}</span></div>
           {r.raw?.answers && <div className="muted" style={{ fontSize: 10 }}>model: {JSON.stringify(r.raw.adjusted || r.raw.answers).slice(0, 300)}</div>}
-          {r.raw?.function_calls && <div className="muted" style={{ fontSize: 10 }}>needle: {JSON.stringify(r.raw.function_calls)} {r.raw.reasoning}</div>}
         </div>
       ))}
     </div>
@@ -163,6 +171,11 @@ function TeamInspector() {
           <div className="row"><span>Supervisors</span><span>{d.members.filter((m: any) => m.role_kind === 'supervisor').length}</span></div>
         </>
       )}
+      <h4>Cost this month</h4>
+      <div className="row"><span>Total · annual run rate</span><span>£{Math.round(t.cost_month || 0).toLocaleString()} · <span style={{ color: budgetCss((t.cost_month * 12) / Math.max(1, t.budget_annual)) }}>{Math.round(((t.cost_month || 0) * 12 * 100) / Math.max(1, t.budget_annual))}% of budget</span></span></div>
+      <div className="row"><span>Pay · overtime · AI</span><span>£{Math.round(t.cost_pay_month || 0).toLocaleString()} · £{Math.round(t.cost_overtime_month || 0).toLocaleString()} · £{Math.round(t.cost_ai_month || 0).toLocaleString()}</span></div>
+      <div className="row"><span>Spent this year · annual budget</span><span>£{Math.round((t.spend_ytd || 0) / 1000)}k · £{Math.round((t.budget_annual || 0) / 1000)}k</span></div>
+      <MiniChart xs={h.map((x: any) => x.cost_month || 0)} />
       <h4>Queue by kind</h4>
       {Object.entries(d.queue_by_kind).slice(0, 6).map(([k, v]: any) => <div className="row" key={k}><span>{k}</span><span>{v}</span></div>)}
       <h4>Backlog history</h4>

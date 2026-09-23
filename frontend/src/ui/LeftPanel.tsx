@@ -122,7 +122,7 @@ function Batch() {
         <input className="mono" style={{ width: 56, background: '#060810', color: 'var(--text)', border: '1px solid var(--panel-border)', borderRadius: 6, padding: 5 }} type="number" value={months} onChange={(e) => setMonths(+e.target.value)} />
         <span className="muted">months</span>
         <select value={engine} onChange={(e) => setEngine(e.target.value)} style={{ background: '#060810', color: 'var(--text)', border: '1px solid var(--panel-border)', borderRadius: 6, padding: 5 }}>
-          <option value="heuristic">heuristic</option><option value="laya">laya (slow)</option><option value="needle">needle (slow)</option>
+          <option value="heuristic">heuristic</option><option value="laya">laya (slow)</option>
         </select>
       </div>
       <button className="btn primary" disabled={!status?.forked || job?.status === 'running'} onClick={start}>RUN {n} ORGANISATIONS</button>
@@ -177,12 +177,12 @@ function Saved() {
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
         <select value={tpl} onChange={(e) => setTpl(e.target.value)} style={inp}><option value="prototype">prototype · 100 people</option><option value="charity500">charity500 · 500 people</option></select>
         <input className="mono" type="number" value={seed} onChange={(e) => setSeed(+e.target.value)} style={{ ...inp, width: 64 }} />
-        <select value={engine} onChange={(e) => setEngine(e.target.value)} style={inp}><option value="heuristic">heuristic rules</option><option value="laya">Laya</option><option value="needle">Needle 3</option></select>
+        <select value={engine} onChange={(e) => setEngine(e.target.value)} style={inp}><option value="heuristic">heuristic rules</option><option value="laya">Laya</option></select>
         <select value={util} onChange={(e) => setUtil(+e.target.value)} style={inp} title="How stretched the organisation starts"><option value={0.65}>slack org (65%)</option><option value={0.75}>normal org (75%)</option><option value={0.85}>lean org (85%)</option></select>
         <input className="mono" placeholder="decisions/mo" title="Cap on agent evaluations per month, applied to every engine (blank = engine default)" value={cap} onChange={(e) => setCap(e.target.value)} style={{ ...inp, width: 92 }} />
         <button className="btn sm primary" disabled={busy} onClick={async () => { setBusy(true); try { await api('/experiment', { template: tpl, seed, engine, utilisation: util, decisions_per_month: cap ? +cap : null }); await useStore.getState().init() } finally { setBusy(false) } }}>{busy ? <span className="spinner" /> : 'NEW'}</button>
       </div>
-      <div className="muted" style={{ marginTop: 4 }}>Same organisation, seed and decision cap, different engine = a fair Laya vs Needle vs rules comparison (the dev panel shows how often the model agrees with the rules). Model engines load on first use (Laya ~25 s).</div>
+      <div className="muted" style={{ marginTop: 4 }}>Same organisation, seed and decision cap, different engine = a fair Laya vs rules comparison (the dev panel shows how often the model agrees with the rules). Model engines load on first use (Laya ~25 s).</div>
       <h4>Save & export</h4>
       <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
         <button className="btn sm" onClick={async () => { await api('/save', {}); load() }}>save experiment</button>

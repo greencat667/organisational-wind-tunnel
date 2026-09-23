@@ -1,16 +1,17 @@
-export type EmployeeRow = [string, string, number, number, number, number, number, string, number, string, number, number, string]
-// [id, team, x, z, workload, stress, morale, status, is_manager, behaviour, tasks, onboarding, role_kind]
+export type EmployeeRow = [string, string, number, number, number, number, number, string, number, string, number, number, string, number, number]
+// [id, team, x, z, workload, stress, morale, status, is_manager, behaviour, tasks, onboarding, role_kind, cost_month, overtime_hours]
 
 export interface TeamFrame {
   id: string; name: string; dept: string; x: number; z: number; r: number; queue: number; backlog_months: number; workload: number
   headcount: number; vacancies: number; management_load: number; morale: number; accepting: boolean; automation: number; function: string
   ai_agents?: number; ai_incident?: boolean; ai_paused?: boolean; ai_coverage?: number; ai_exception_rate?: number; supervisors?: number
+  cost_month?: number; cost_pay?: number; cost_overtime?: number; cost_ai?: number; budget_ratio?: number; cost_per_hour?: number | null
 }
 export interface Flow { item: string; from: string; to: string; kind: string; priority: number; transfer?: boolean; exception?: boolean; ai?: boolean }
 export interface InfoFlow { packet: string; from: string; to: string; kind: string }
 export interface Frame {
   month: number; label: string; employees: EmployeeRow[]; teams: TeamFrame[]; flows: Flow[]; info_flows: InfoFlow[]
-  departments: { id: string; name: string; x: number; z: number; r: number; hiring_frozen: boolean }[]
+  departments: { id: string; name: string; x: number; z: number; r: number; hiring_frozen: boolean; spend_ratio?: number }[]
   new_events: SimEvent[]
 }
 export interface SimEvent {
