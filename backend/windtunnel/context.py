@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from .behaviour import norm_context
 from .decisions.base import DecisionRequest
 
 if TYPE_CHECKING:
@@ -82,6 +83,9 @@ def build_request(world: "World", emp, triggers: list[str], available: list[str]
         "holds_unshared_information": 1.0 if world.unshared_info(emp) else 0.0,
     }
     ctx["my_role"] = emp.role_kind
+    ctx.update(norm_context(team))                    # how colleagues are coping (social proof)
+    if emp.fatigue > 0.05:
+        ctx["my_fatigue"] = round(emp.fatigue, 2)
     if team.ai_agents > 0:
         ctx.update({
             "ai_agents_in_team": round(team.ai_agents, 1),

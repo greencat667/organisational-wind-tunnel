@@ -35,7 +35,9 @@ When you open <http://127.0.0.1:5180> you see one organisation running month by 
   Small moving dots are real work items travelling along them; the **stack beside each team is its queue**, with the
   item count underneath.
 * The **timeline** (left) lists significant events as they happen — resignations, new help channels between teams,
-  approvals bypassed. Click any of them to ask *why*.
+  approvals bypassed, a coping habit *becoming normal* in a team. Click any of them to ask *why*: choices carry forward
+  (habits, team norms, fatigue, and rushed work whose defects surface later on another team), so chains often lead back
+  to one person's decision.
 * The **metric tiles** (bottom) show the organisation's vital signs, each with a sparkline.
 * Press **▶** or pick a speed (1 m/s = one month per second) to let time run; **+1 mo / +6 mo / +3 yrs** jump ahead.
 
@@ -97,8 +99,9 @@ isn't affected by your change happens identically in both. So **any difference b
 the change** — not by luck. Each metric tile shows both values and the difference (*Stress 0.20 · 0.24, +20% vs
 baseline*).
 
-Here, three years on, delivery has held up (the cut was "protecting frontline delivery"), stress is 20% higher and
-capacity 4% lower. The headline numbers look calm. The interesting part is underneath.
+Here, three years on, delivery has held up (the cut was "protecting frontline delivery"), but stress is 31% higher,
+workload 18% higher, the backlog has tripled and 54 items a month are now being passed between teams that weren't
+before. The headline number looks calm. The interesting part is underneath.
 
 View modes (top right):
 
@@ -119,30 +122,33 @@ View modes (top right):
 Open **Effects** to see every variable that diverged materially from the baseline over the last 12 months, grouped by
 **causal distance** from the change:
 
-* **First order** — direct results of the change itself: Finance and Business Support headcount down.
-* **Second order** — what that caused next door: Finance workload up, work dropped in Business Support, items passed to
-  other teams.
-* **Third order** — further out: here, a shift in Communications turnover.
+* **First order** — direct results of the change itself: Finance and Business Support headcount down, Finance workload
+  up.
+* **Second order** — what that caused next: Business Support's backlog and dropped work up sharply, its people leaving,
+  and items passed to Technology and Programme Delivery.
+* **Third order** — further out, where it appears.
 * **Organisation-wide** — totals across the organisation (these summarise the team rows; they aren't a further step).
-* **Emergent effects** at the top are named phenomena the simulator detected from state — *Approval workarounds
-  spreading*, *New bottleneck: Finance*, *X became an informal coordination hub*. Nobody scripted them.
+* **Emergent effects** at the top are named phenomena the simulator detected from state — here *New bottleneck: Business
+  Support*, *Turnover cluster: Business Support* and unexpected workload transfers into Technology and Programme
+  Delivery. Nobody scripted them.
 
 Each row reads **baseline → intervention**, a **strength** (weak / moderate / strong / very strong: the difference
 relative to the baseline's own month-to-month variation — hover for the number), a direction arrow, and how long after
 the change it appeared. **EMERGENT** marks effects on teams that were *not* targeted by the change.
 
-In this run the frontline team the cut was meant to protect — Programme Delivery — ends up dropping requests. That's
-the kind of effect this tool exists to surface.
+In this run the frontline team the cut was meant to protect — Programme Delivery — ends up taking in Business Support's
+overflow. That's the kind of effect this tool exists to surface.
 
 ## 6. Why did this happen?
 
-![A WHY chain from the intervention, through a Finance post removal, bypassed approvals and an escalation, to Finance passing work to Programme Delivery](images/08-why.png)
+![A WHY chain from the intervention, through a Business Support post removal and a rebalancing of its work, to repeated rework on procurement requests](images/08-why.png)
 
 Click an effect (or any timeline event) and the right-hand panel reconstructs its **causal chain** from the event log,
 starting at the intervention. Each step is a recorded event — something that happened to someone, or something an
-agent decided — with the numbers that changed. Here: the change → a Finance post removed → approvals start being
-bypassed under pressure → a Finance officer escalates their workload to the manager → and then starts passing work from
-Finance to Programme Delivery. The protected team's extra load is a *consequence of the cut*, arriving by a route nobody planned.
+agent decided — with the numbers that changed. Here: the change → a Business Support post removed → its manager
+rebalances the work → eight folded steps (work passed to other teams, an escalation, rework, someone overloaded) → errors
+on procurement requests needing rework, three times over. The backlog is a *consequence of the cut*, arriving by a route
+nobody planned.
 
 Long chains are folded: repeated steps show a count (×3), and a long middle is summarised as "… N intermediate steps".
 If a chain doesn't reach the intervention, the panel says so — that event is probably background churn that happens in
@@ -154,13 +160,13 @@ Drag the **time scrubber** back to replay any earlier month (the clock shows **R
 
 Click a team ring (or an effect about a team) to open the **team inspector**:
 
-![Team inspector for Finance: workload, backlog, management load, morale, stress, capacity, queue by kind and backlog history](images/09-team-inspector.png)
+![Team inspector: workload, backlog, management load, morale, stress, capacity, queue by kind and history](images/09-team-inspector.png)
 
 It shows the team's workload, backlog, management load, morale, stress, capacity, what's queued (by kind), transfers
 in and out, errors and waiting approvals, turnover, and recent events — each clickable for *why*. Click a member to
 open the **employee inspector**:
 
-![Employee inspector for the Finance manager: own workload, stress, morale, trust, traits, current work and this month's decision probabilities](images/10-employee-inspector.png)
+![Employee inspector: own workload, stress, morale, trust, traits, current work and this month's decision probabilities](images/10-employee-inspector.png)
 
 This is one agent's full state: workload against their *own* allocation, stress, morale, trust in management,
 turnover intention, traits, the work they're holding, and **this month's decision** — the probability the engine gave
@@ -183,8 +189,8 @@ different seeds (different people, luck and demand), without rendering, and repo
 * **Distributions** — p10 · p50 · p90 of key metrics, baseline (blue) against intervention (amber).
 
 Scroll down for **unexpected consequences**: variables far from the change in the organisation graph that moved in
-many worlds, with their typical lag. Programme Delivery — the protected team — dominates the list (morale, turnover,
-workload, work transferred in):
+many worlds, with their typical lag. Programme Delivery — the protected team — dominates the list (queue, workload,
+fatigue, vacancies, errors), about two years after the cut:
 
 ![Unexpected consequences and emergent effects by share of worlds](images/13-many-worlds-surprises.png)
 

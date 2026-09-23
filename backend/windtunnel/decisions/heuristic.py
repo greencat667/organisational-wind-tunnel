@@ -36,31 +36,39 @@ class HeuristicDecisionEngine(AgentDecisionEngine):
         neighbour_spare = float(c.get("neighbour_spare_capacity", 0.0))
         overload = max(0.0, w - 1.0)
         team_over = max(0.0, team_w - 1.0)
-        pressure = max(overload, team_over, max(0.0, backlog_m - 0.8), 0.5 * float(c.get("overdue_tasks", 0) > 0))
+        # capped: past this, a longer queue doesn't make anyone cope *harder* — and uncapped, coping logits dwarfed everything
+        # else, so even someone at breaking point never chose to resign
+        pressure = min(2.0, max(overload, team_over, max(0.0, backlog_m - 0.8), 0.5 * float(c.get("overdue_tasks", 0) > 0)))
         slack = 1.0 if pressure <= 0.0 else 0.0
+        # social proof: what colleagues are doing pulls people the same way (team norms, see behaviour.py)
+        nw = 2.5   # logit added at a norm of 1.0 (a norm of 0.3 — 'becoming normal' — adds 0.75)
+        norm = {a: nw * float(c.get(f"team_norm_{a}", 0.0)) for a in ("reduce_quality", "work_overtime", "use_workaround", "seek_help")}
+        fatigue = float(c.get("my_fatigue", 0.0))
 
         logits: dict[str, float] = {}
         for a in request.available_actions:
             if a == "continue_as_normal":
                 logits[a] = 1.2 + 2.0 * slack - 3.0 * pressure
             elif a == "seek_help":
-                logits[a] = -2.0 + 4.0 * pressure + 1.5 * (collab - 0.5) + 1.5 * neighbour_spare - 0.5 * (auton - 0.5)
+                logits[a] = -2.0 + 4.0 * pressure + 1.5 * (collab - 0.5) + 1.5 * neighbour_spare - 0.5 * (auton - 0.5) + norm["seek_help"]
             elif a == "work_overtime":
-                logits[a] = -2.0 + 4.0 * pressure + 1.0 * (float(s.get("commitment", 0.6)) - 0.5) - 2.0 * max(0.0, stress - 0.6)
+                logits[a] = (-2.0 + 4.0 * pressure + 1.0 * (float(s.get("commitment", 0.6)) - 0.5) - 2.0 * max(0.0, stress - 0.6)
+                             + norm["work_overtime"] - 3.0 * fatigue)
             elif a == "delay_low_priority":
                 logits[a] = -1.8 + 3.5 * pressure + 0.8 * (auton - 0.5)
             elif a == "escalate_workload":
                 logits[a] = -2.4 + 3.5 * pressure + 2.0 * (esc - 0.5) + 1.0 * (mgr_avail - 0.5) + 0.8 * (trust - 0.5)
             elif a == "use_workaround":
-                logits[a] = -3.0 + 3.0 * pressure + 2.5 * (risk - 0.5) + 1.0 * (auton - 0.5) - 1.5 * mgr_avail
+                logits[a] = -3.0 + 3.0 * pressure + 2.5 * (risk - 0.5) + 1.0 * (auton - 0.5) - 1.5 * mgr_avail + norm["use_workaround"]
             elif a == "reduce_quality":
-                logits[a] = -3.2 + 3.0 * pressure + 1.5 * max(0.0, stress - 0.5) - 1.5 * (morale - 0.5)
+                logits[a] = -3.2 + 3.0 * pressure + 1.5 * max(0.0, stress - 0.5) - 1.5 * (morale - 0.5) + norm["reduce_quality"]
             elif a == "share_information":
                 logits[a] = -1.0 + 1.5 * collab + 0.5 * float(c.get("holds_unshared_information", 0.0))
             elif a == "apply_for_internal_job":
                 logits[a] = -2.5 + 3.0 * turnover + 1.0 * float(s.get("adaptability", 0.5))
             elif a == "leave":
-                logits[a] = -4.0 + 6.0 * turnover + 1.5 * float(c.get("job_market", 0.5)) - 1.5 * float(s.get("commitment", 0.6))
+                logits[a] = (-4.0 + 7.0 * turnover + 1.5 * float(c.get("job_market", 0.5)) - 1.5 * float(s.get("commitment", 0.6))
+                             + 1.5 * max(0.0, stress - 0.6) + 1.5 * fatigue)
             # manager actions
             elif a == "redistribute_work":
                 logits[a] = -1.5 + 3.5 * pressure + 1.0 * float(c.get("member_workload_spread", 0.0))

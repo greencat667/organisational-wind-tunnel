@@ -14,7 +14,13 @@ async function shot(page: Page, name: string, settle = 1500) {
 /** Advance the live simulation through the API and wait until the page's clock has caught up. */
 async function advance(page: Page, request: any, steps: number) {
   const st = await (await request.post('/api/play', { data: { steps } })).json()
-  await expect(page.locator('.clock')).toContainText(st.label, { timeout: 60_000 })
+  try {
+    await expect(page.locator('.clock')).toContainText(st.label, { timeout: 20_000 })
+  } catch {
+    // the live connection can drop during a long jump; the state is on the server, so a reload catches up
+    await page.reload()
+    await expect(page.locator('.clock')).toContainText(st.label, { timeout: 30_000 })
+  }
 }
 
 /** Reload (state lives on the server) so the camera returns to the overview after an inspector zoomed it in. */
@@ -64,8 +70,8 @@ test('guide screenshots', async ({ page, request }) => {
   await expect(page.getByText(/second order/)).toBeVisible({ timeout: 20_000 })
   await shot(page, '07-effects')
 
-  // click the Finance backlog effect: WHY chain + team inspector
-  await page.locator('.list-btn', { hasText: /Finance · backlog months/ }).first().click()
+  // click the strongest team backlog effect (whichever team it lands on in this build): WHY chain + team inspector
+  await page.locator('.list-btn', { hasText: /· backlog months/ }).first().click()
   await expect(page.getByText(/Why did this happen/i)).toBeVisible({ timeout: 15_000 })
   await expect(page.getByText('tracing…')).toHaveCount(0, { timeout: 15_000 })
   await shot(page, '08-why', 2500)
