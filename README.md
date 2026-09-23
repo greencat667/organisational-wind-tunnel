@@ -11,7 +11,7 @@ third-order consequences back to their causes.
 
 [![The Organisational Wind Tunnel: Simulating AI's Second-Order Effects](https://img.youtube.com/vi/U7b4nGF48SU/maxresdefault.jpg)](https://www.youtube.com/watch?v=U7b4nGF48SU)
 
-**New here? Start with the [user guide](docs/GUIDE.md)** — a screenshot walkthrough of the demo and every panel.
+**Try it in your browser, nothing to install: <https://greencat667.github.io/organisational-wind-tunnel/>** · **New here? Start with the [user guide](docs/GUIDE.md)** — a screenshot walkthrough of the demo and every panel.
 
 ## What it is
 
