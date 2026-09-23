@@ -43,6 +43,9 @@ When you open <http://127.0.0.1:5180> you see one organisation running month by 
 
 Nothing has been changed yet: this is the *baseline*, an organisation already doing its normal work with normal churn.
 
+On your first visit a small card offers a **one-minute guided tour** of these areas; the **tour** button in the top bar
+replays it any time. Its last step can set up the admin-cut demo for you.
+
 ## 2. Describe a change
 
 Type a change in plain English into the box at the bottom, or click one of the scenario chips underneath
@@ -89,7 +92,8 @@ explanation and **RUN EXPERIMENT** stays disabled:
 
 ![Split view after three years: the baseline organisation on the left, the intervention on the right, with paired metrics along the bottom](images/05-split.png)
 
-Running the experiment **forks** the organisation. From that month on there are two worlds:
+Running the experiment **forks** the organisation and **starts time moving** at six months a second (a note above the
+tiles says so; ❚❚ pauses, **+3 yrs** jumps ahead). From that month on there are two worlds:
 
 * **BASELINE** (left, blue figures in the tiles): the organisation carrying on unchanged.
 * **INTERVENTION** (right, amber): the same organisation, same people, with your change applied.
@@ -290,7 +294,8 @@ replay a past month · **live** returns to the present · **discard** throws awa
 
 ### Keyboard
 
-`w` watch mode · `d` developer panel · `Esc` close inspectors and WHY, leave watch mode.
+`w` watch mode · `d` developer panel · `Esc` close inspectors and WHY, leave watch mode or the tour · `←` `→` step
+through the tour.
 
 ### Developer panel
 

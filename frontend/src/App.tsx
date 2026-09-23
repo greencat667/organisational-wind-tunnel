@@ -11,6 +11,7 @@ import { InterpretModal } from './ui/InterpretModal'
 import { DebugPanel } from './ui/DebugPanel'
 import { WatchCaption } from './ui/WatchCaption'
 import { Tooltip } from './ui/Tooltip'
+import { RunHint, TourHost } from './ui/Tour'
 
 export default function App() {
   const init = useStore((s) => s.init)
@@ -40,6 +41,8 @@ export default function App() {
       {debug && <DebugPanel />}
       <Tooltip />
       {interpret && <InterpretModal />}
+      {!watch && <RunHint />}
+      <TourHost />
       <div className="notice">Exploratory organisational simulation — not a prediction of employee behaviour or organisational outcomes. Synthetic organisation. Runs entirely on this machine.</div>
     </div>
   )

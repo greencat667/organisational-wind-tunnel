@@ -28,6 +28,9 @@ interface State {
   batchJob: any | null
   interpret: { text: string; plan: any; interpreted: string[]; source: string; latency_ms: number; error: string | null; pending?: boolean; edited?: boolean } | null
   interpreting: boolean
+  tour: 'off' | 'welcome' | number       // guided tour: off, the first-visit welcome card, or a step index
+  pendingPrompt: string | null           // text to put in the change box and interpret (the tour's "set up the demo")
+  runHint: boolean                       // the "time is running" note shown after an experiment starts
   init: () => Promise<void>
   applyFrame: (msg: any) => void
   set: (p: Partial<State>) => void
@@ -58,6 +61,9 @@ export const useStore = create<State>((set, get) => ({
   batchJob: null,
   interpret: null,
   interpreting: false,
+  tour: 'off',
+  pendingPrompt: null,
+  runHint: false,
   set: (p) => set(p),
   select: (s) => set({ selection: s, panel: s ? 'inspector' : get().panel }),
   latestFrame: (w) => { const f = get().frames[w]; return f.length ? f[f.length - 1] : null },

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useStore } from '../lib/store'
 import { api } from '../lib/api'
+import { play } from './TopBar'
 
 export function InterpretModal() {
   const it = useStore((s) => s.interpret)!
@@ -12,7 +13,9 @@ export function InterpretModal() {
     try {
       const plan = editing ? JSON.parse(json) : it.plan
       await api('/run', { plan, text: it.text })
-      set({ interpret: null, viewMode: 'split', world: 'intervention', panel: 'events' })
+      set({ interpret: null, viewMode: 'split', world: 'intervention', panel: 'events', runHint: true })
+      // start time moving: a paused fork looked like "nothing happened"
+      await play({ playing: true, speed: 6 })
     } catch (e: any) { setErr(String(e.message || e)) }
   }
   return (

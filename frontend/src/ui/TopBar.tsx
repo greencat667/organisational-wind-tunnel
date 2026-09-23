@@ -38,6 +38,7 @@ export function TopBar() {
           </>
         )}
         <button className={`btn sm ${watch ? 'active' : ''}`} onClick={() => set({ watch: !watch, selection: null })}>watch</button>
+        <button className="btn sm ghost" title="A one-minute guided tour" onClick={() => set({ tour: 0 })}>tour</button>
         <button className="btn sm ghost" onClick={() => set({ debug: !useStore.getState().debug })}>dev</button>
       </div>
     </div>

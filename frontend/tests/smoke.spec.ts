@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 
 test('loads, interprets, runs an intervention, advances and reports effects', async ({ page, request }) => {
+  await page.addInitScript(() => { try { localStorage.setItem('windtunnel.tourSeen', '1') } catch {} })   // skip the first-visit tour offer
   const health = await request.get('/api/health')
   expect(health.ok()).toBeTruthy()
 

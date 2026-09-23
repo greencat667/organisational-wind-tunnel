@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 
 test('static build: boots Python in the browser, runs an intervention, a batch, and persists a save', async ({ page }) => {
+  await page.addInitScript(() => { try { localStorage.setItem('windtunnel.tourSeen', '1') } catch {} })   // skip the first-visit tour offer
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(String(e)))
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
