@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../lib/store'
-import { api } from '../lib/api'
+import { api, download } from '../lib/api'
+import { STATIC } from '../lib/mode'
 import type { SimEvent } from '../lib/types'
 
 export function LeftPanel() {
@@ -98,7 +99,7 @@ function fmt(v: any) { return typeof v === 'number' ? (Math.abs(v) >= 100 ? Math
 function Batch() {
   const job = useStore((s) => s.batchJob)
   const status = useStore((s) => s.status)
-  const [n, setN] = useState(200)
+  const [n, setN] = useState(STATIC ? 24 : 200)   // in the browser each world takes a few seconds per core
   const [months, setMonths] = useState(36)
   const [engine, setEngine] = useState('heuristic')
   const [explain, setExplain] = useState<string>('')
@@ -122,7 +123,7 @@ function Batch() {
         <input className="mono" style={{ width: 56, background: '#060810', color: 'var(--text)', border: '1px solid var(--panel-border)', borderRadius: 6, padding: 5 }} type="number" value={months} onChange={(e) => setMonths(+e.target.value)} />
         <span className="muted">months</span>
         <select value={engine} onChange={(e) => setEngine(e.target.value)} style={{ background: '#060810', color: 'var(--text)', border: '1px solid var(--panel-border)', borderRadius: 6, padding: 5 }}>
-          <option value="heuristic">heuristic</option><option value="laya">laya (slow)</option>
+          <option value="heuristic">heuristic</option>{!STATIC && <option value="laya">laya (slow)</option>}
         </select>
       </div>
       <button className="btn primary" disabled={!status?.forked || job?.status === 'running'} onClick={start}>RUN {n} ORGANISATIONS</button>
@@ -151,7 +152,7 @@ function Batch() {
             </>
           )}
           {Object.keys(s.emergence_frequency || {}).length > 0 && (<><h4>Emergent effects (share of worlds)</h4>{Object.entries(s.emergence_frequency).map(([k, v]: any) => <div className="row" key={k}><span>{k}</span><span>{Math.round(v * 100)}%</span></div>)}</>)}
-          <button className="btn sm" style={{ marginTop: 8 }} onClick={async () => { const r = await api('/explain', { prompt: `Summarise these batch results for a leadership team. Intervention: ${status?.intervention_text}. Worlds: ${s.n}. Outcome frequencies: ${JSON.stringify(s.outcome_frequencies)}. Clusters: ${JSON.stringify(s.clusters.map((c: any) => [c.name, c.share]))}. Surprises: ${JSON.stringify(s.surprises.slice(0, 4).map((x: any) => [x.team_name, x.metric, x.frequency]))}.` }); setExplain(r.text || 'Apple Foundation Model unavailable for explanation right now.') }}>EXPLAIN (Apple FM)</button>
+          {!STATIC && <button className="btn sm" style={{ marginTop: 8 }} onClick={async () => { const r = await api('/explain', { prompt: `Summarise these batch results for a leadership team. Intervention: ${status?.intervention_text}. Worlds: ${s.n}. Outcome frequencies: ${JSON.stringify(s.outcome_frequencies)}. Clusters: ${JSON.stringify(s.clusters.map((c: any) => [c.name, c.share]))}. Surprises: ${JSON.stringify(s.surprises.slice(0, 4).map((x: any) => [x.team_name, x.metric, x.frequency]))}.` }); setExplain(r.text || 'Apple Foundation Model unavailable for explanation right now.') }}>EXPLAIN (Apple FM)</button>}
           {explain && <div className="muted" style={{ marginTop: 6, whiteSpace: 'pre-wrap', color: 'var(--text)' }}>{explain}</div>}
           <div className="muted" style={{ marginTop: 8 }}>{s.disclaimer}</div>
         </div>
@@ -177,18 +178,18 @@ function Saved() {
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
         <select value={tpl} onChange={(e) => setTpl(e.target.value)} style={inp}><option value="prototype">prototype · 100 people</option><option value="charity500">charity500 · 500 people</option></select>
         <input className="mono" type="number" value={seed} onChange={(e) => setSeed(+e.target.value)} style={{ ...inp, width: 64 }} />
-        <select value={engine} onChange={(e) => setEngine(e.target.value)} style={inp}><option value="heuristic">heuristic rules</option><option value="laya">Laya</option></select>
+        <select value={engine} onChange={(e) => setEngine(e.target.value)} style={inp}><option value="heuristic">heuristic rules</option>{!STATIC && <option value="laya">Laya</option>}</select>
         <select value={util} onChange={(e) => setUtil(+e.target.value)} style={inp} title="How stretched the organisation starts"><option value={0.65}>slack org (65%)</option><option value={0.75}>normal org (75%)</option><option value={0.85}>lean org (85%)</option></select>
         <input className="mono" placeholder="decisions/mo" title="Cap on agent evaluations per month, applied to every engine (blank = engine default)" value={cap} onChange={(e) => setCap(e.target.value)} style={{ ...inp, width: 92 }} />
         <button className="btn sm primary" disabled={busy} onClick={async () => { setBusy(true); try { await api('/experiment', { template: tpl, seed, engine, utilisation: util, decisions_per_month: cap ? +cap : null }); await useStore.getState().init() } finally { setBusy(false) } }}>{busy ? <span className="spinner" /> : 'NEW'}</button>
       </div>
-      <div className="muted" style={{ marginTop: 4 }}>Same organisation, seed and decision cap, different engine = a fair Laya vs rules comparison (the dev panel shows how often the model agrees with the rules). Model engines load on first use (Laya ~25 s).</div>
+      {!STATIC && <div className="muted" style={{ marginTop: 4 }}>Same organisation, seed and decision cap, different engine = a fair Laya vs rules comparison (the dev panel shows how often the model agrees with the rules). Model engines load on first use (Laya ~25 s).</div>}
       <h4>Save & export</h4>
       <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
         <button className="btn sm" onClick={async () => { await api('/save', {}); load() }}>save experiment</button>
-        <a className="btn sm" href="/api/export/baseline/metrics?fmt=csv" download>metrics.csv</a>
-        <a className="btn sm" href="/api/export/intervention/events" download>events.json</a>
-        <a className="btn sm" href="/api/export/intervention/decisions" download>decisions.json</a>
+        <button className="btn sm" onClick={() => download('/export/baseline/metrics?fmt=csv', 'metrics.csv')}>metrics.csv</button>
+        <button className="btn sm" onClick={() => download('/export/intervention/events', 'events.json')}>events.json</button>
+        <button className="btn sm" onClick={() => download('/export/intervention/decisions', 'decisions.json')}>decisions.json</button>
       </div>
       <h4>Experiments <span className="muted">· load replays the saved run exactly; fork replays to a month and continues live</span></h4>
       {data?.experiments?.map((e: any) => (
@@ -202,7 +203,7 @@ function Saved() {
       ))}
       <h4>Batches</h4>
       {data?.batches?.map((b: any) => <div className="row" key={b.id}><span>{b.id}</span><span>{b.n} × {b.months}mo</span></div>)}
-      <div className="muted" style={{ marginTop: 8 }}>Stored in a local SQLite file. No telemetry, no cloud.</div>
+      <div className="muted" style={{ marginTop: 8 }}>{STATIC ? 'Stored in this browser (IndexedDB). Nothing leaves your machine.' : 'Stored in a local SQLite file. No telemetry, no cloud.'}</div>
     </div>
   )
 }

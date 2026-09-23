@@ -16,7 +16,10 @@ import subprocess
 import time
 from typing import Any, Optional
 
-import httpx
+try:                        # only needed to talk to Apple's `fm serve`; absent in the browser build
+    import httpx
+except ImportError:         # pragma: no cover
+    httpx = None
 
 from .schema import AFM_SCHEMA, ChangePlan, validate_plan
 

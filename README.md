@@ -38,6 +38,13 @@ USER INTERVENTION  →  parser (rules, or an LLM if one's available)  →  valid
 * **Fully local, no telemetry.** The deterministic core is pure Python and needs nothing beyond the pinned
   dependencies. The optional AI extras below add no network calls either — everything runs on-device.
 
+## Run it in a browser, with nothing installed
+
+The simulation also runs entirely in the browser (Python compiled to WebAssembly), so the rules-based wind tunnel can
+be published as a free static site — every visitor gets their own organisation, on their own machine.
+`cd frontend && npm run build:static` builds it; [docs/HOSTING.md](docs/HOSTING.md) covers Cloudflare/GitHub Pages and
+what differs (no Laya or Apple model; saves live in the browser).
+
 ## Quick start (any machine with Python 3.11 and Node)
 
 ```bash
@@ -92,12 +99,14 @@ them.
 ```bash
 .venv/bin/python -m pytest -q tests     # 57 tests: physics, invariants, determinism, forking, interventions, parser safety, causality, AI mechanics, store, adapters
 (cd frontend && npm run smoke)          # Playwright end-to-end smoke test against the real servers
+(cd frontend && npm run build:static && npm run smoke:static)   # the same for the browser-only build
 ```
 
 ## Documentation
 
 | Doc | Contents |
 |---|---|
+| [docs/HOSTING.md](docs/HOSTING.md) | the browser-only build: build, publish (Cloudflare/GitHub Pages), what differs |
 | [docs/GUIDE.md](docs/GUIDE.md) | **user guide**: screenshot walkthrough of the demo, every panel and control, reading results honestly |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | layers, modules, data flow, technology choices and why |
 | [docs/SIMULATION_MODEL.md](docs/SIMULATION_MODEL.md) | every simulation assumption: organisation, work, processes, physics, psychology, information, finance |
